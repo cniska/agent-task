@@ -4,7 +4,7 @@ import { type Command, type Outcome, type Runtime, usageError } from "./cli-cont
 import { messageOf } from "./coded-error";
 import { DOCTOR_USAGE, doctor } from "./doctor";
 import { storePath } from "./paths";
-import { closeStore, isPriority, openStore } from "./store";
+import { closeStore, isPriority, openStore, type Priority } from "./store";
 import { add, type Context, done, list, review, start, stop, USAGE, wait } from "./tasks";
 
 type Flags = Readonly<Record<string, { readonly type: "string"; readonly multiple?: boolean }>>;
@@ -77,7 +77,7 @@ function afterNames(command: Command, values: Parsed["values"], name: string): r
   return after;
 }
 
-function priorityValue(command: Command, values: Parsed["values"]) {
+function priorityValue(command: Command, values: Parsed["values"]): Priority | null {
   const value = optionalValue(command, values, "priority");
   if (value === null) return null;
   if (!isPriority(value)) refuseArguments(command, `--priority is urgent, high, medium or low, not ${value}`);
