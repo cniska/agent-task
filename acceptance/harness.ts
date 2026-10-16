@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -43,6 +43,12 @@ export type RunOptions = { readonly env?: Env; readonly unset?: readonly string[
 
 function environment(w: World, { env, unset }: RunOptions): Env {
   return Object.fromEntries(Object.entries({ ...w.env, ...env }).filter(([name]) => !unset?.includes(name)));
+}
+
+export function launcher(bin: string): void {
+  const path = join(bin, "agent-task");
+  writeFileSync(path, `#!/bin/sh\nexec "${process.execPath}" "${ENTRY}" "$@"\n`);
+  chmodSync(path, 0o755);
 }
 
 export function run(w: World, cwd: string, args: readonly string[], options: RunOptions = {}): Ran {

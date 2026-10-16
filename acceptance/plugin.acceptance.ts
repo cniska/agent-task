@@ -1,15 +1,13 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { brief, type Ran, removeScratch, repo, result, run, type World, world } from "./harness";
+import { brief, launcher, type Ran, removeScratch, repo, result, run, type World, world } from "./harness";
 
 afterEach(removeScratch);
 
 const PLUGIN = join(import.meta.dir, "..", "plugin");
-
-const ENTRY = join(import.meta.dir, "..", "src", "cli.ts");
 
 const SHELL = "/bin/sh";
 
@@ -42,16 +40,12 @@ function pluginName(): unknown {
   return isRecord(parsed) ? parsed.name : null;
 }
 
-function binWith(w: World, programs: readonly string[], cli: boolean): string {
-  const bin = join(w.root, "bin");
+function binWith(w: World, programs: readonly string[], cli: boolean, name = "bin"): string {
+  const bin = join(w.root, name);
   mkdirSync(bin);
   for (const program of programs)
     symlinkSync(execFileSync("which", [program], { encoding: "utf8" }).trim(), join(bin, program));
-  if (cli) {
-    const launcher = join(bin, "agent-task");
-    writeFileSync(launcher, `#!/bin/sh\nexec "${process.execPath}" "${ENTRY}" "$@"\n`);
-    chmodSync(launcher, 0o755);
-  }
+  if (cli) launcher(bin);
   return bin;
 }
 
@@ -178,7 +172,7 @@ test("AC-19 the session hook puts the running tasks in context where the working
   expect(sessionStart(w, bin, join(dir, "missing"), dir)).toEqual(SILENT);
 });
 
-test("AC-20 both hooks print nothing and exit 0 over a store of another schema version, and with no agent-task on PATH", () => {
+test("AC-20 both hooks print nothing and exit 0 over a store of another schema version, with no agent-task on PATH, and with only a note on stderr without jq or realpath", () => {
   const w = world();
   const dir = repo(w);
   const file = brief(dir, "brief.md");
@@ -196,4 +190,20 @@ test("AC-20 both hooks print nothing and exit 0 over a store of another schema v
   const withoutCli = binWith(fresh, ON_PATH, false);
   expect(edit(fresh, withoutCli, freshDir, "Edit", freshBrief)).toEqual(SILENT);
   expect(sessionStart(fresh, withoutCli, freshDir)).toEqual(SILENT);
+  for (const missing of ["jq", "realpath"]) {
+    const without = binWith(
+      fresh,
+      ON_PATH.filter((program) => program !== missing),
+      true,
+      `without-${missing}`,
+    );
+    for (const ran of [
+      edit(fresh, without, freshDir, "Edit", freshBrief),
+      sessionStart(fresh, without, freshDir),
+    ]) {
+      expect([ran.exitCode, ran.stdout]).toEqual([0, ""]);
+      expect(ran.stderr).toStartWith(`cniska-task: ${missing} is not on PATH`);
+      expect(ran.stderr.split("\n")).toHaveLength(2);
+    }
+  }
 });
