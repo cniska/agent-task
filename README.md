@@ -1,6 +1,10 @@
 # agent-task
 
-Task tracking for coding agents: the tasks running in parallel, each with its repo and the brief it started from. For each task on this machine it records the task's name, the repository its work lands in, and its brief, a file of instructions, by path with a git blob sha of its content at the start. It refuses a second task under a name already used, and `list` flags a task whose brief no longer has that sha or is gone or unreadable. A task closes as done only once its commits are on origin's default branch, or is dropped when its work is given up. [`SPEC.md`](SPEC.md) states what must hold.
+> Task tracking for coding agents: the tasks running in parallel, each with its repo and the brief it started from
+
+[![CI](https://img.shields.io/github/actions/workflow/status/cniska/agent-task/check.yml?branch=main&style=flat&label=ci)](https://github.com/cniska/agent-task/actions/workflows/check.yml) [![License](https://img.shields.io/badge/license-MIT-blue?style=flat)](LICENSE)
+
+For each task on this machine it records the task's name, the repository its work lands in, and its brief, a file of instructions, by path with a git blob sha of its content at the start. It refuses a second task under a name already used, and `list` flags a task whose brief no longer has that sha or is gone or unreadable. A task closes as done only once its commits are on origin's default branch, or is dropped when its work is given up. [`SPEC.md`](SPEC.md) states what must hold.
 
 agent-task holds work only while it is being worked on. It is not an issue tracker such as Linear: it keeps no backlog and no priority, lists no task once it is done or dropped, and a task enters it when an agent starts on it. It depends on git alone and keeps its store on this machine, at `$XDG_DATA_HOME/agent-task/tasks.db` (`~/.local/share/agent-task/tasks.db` by default).
 
