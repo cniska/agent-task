@@ -201,27 +201,25 @@ test("AC-8 list prints running tasks oldest first, reading each brief afresh to 
   const deleted = brief(w.root, "deleted.md");
   const kept = brief(w.root, "kept.md");
   for (const [name, file] of [
-    ["first", amended],
-    ["second", deleted],
+    ["zeta", amended],
+    ["mu", deleted],
     ["gone", kept],
-    ["third", kept],
-  ] as const) {
+    ["alpha", kept],
+  ] as const)
     result(start(w, name, dir, file));
-    Bun.sleepSync(5);
-  }
   result(run(w, w.root, ["drop", "gone", "--reason", "worker died"]));
   const unchanged = (tasks: readonly Shown[]) => tasks.map(({ name, briefChanged }) => [name, briefChanged]);
   expect(unchanged(listed(w))).toEqual([
-    ["first", false],
-    ["second", false],
-    ["third", false],
+    ["zeta", false],
+    ["mu", false],
+    ["alpha", false],
   ]);
   writeFileSync(amended, "# Brief\n\nA fix.\n");
   rmSync(deleted);
   expect(unchanged(listed(w))).toEqual([
-    ["first", true],
-    ["second", true],
-    ["third", false],
+    ["zeta", true],
+    ["mu", true],
+    ["alpha", false],
   ]);
 });
 

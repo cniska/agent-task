@@ -63,13 +63,20 @@ describe("the store", () => {
     expect(taskByName(store, named("a"))).toMatchObject({ state: "done", commits: ["c1", "c2"] });
   });
 
-  test("lists only running tasks, oldest first", () => {
+  test("lists only running tasks, oldest first and by name within one time", () => {
     const store = freshStore();
-    insertTask(store, { ...TASK, name: named("late"), started: "2026-10-16T12:00:00.000Z" });
-    insertTask(store, { ...TASK, name: named("early") });
+    insertTask(store, { ...TASK, name: named("alpha"), started: "2026-10-16T12:00:00.000Z" });
+    insertTask(store, { ...TASK, name: named("tie-b"), started: "2026-10-16T11:00:00.000Z" });
+    insertTask(store, { ...TASK, name: named("tie-a"), started: "2026-10-16T11:00:00.000Z" });
+    insertTask(store, { ...TASK, name: named("zeta") });
     insertTask(store, { ...TASK, name: named("gone") });
     dropTask(store, named("gone"), "2026-10-16T13:00:00.000Z", "x");
-    expect(runningTasks(store).map(({ name }) => name)).toEqual([named("early"), named("late")]);
+    expect(runningTasks(store).map(({ name }) => name)).toEqual([
+      named("zeta"),
+      named("tie-a"),
+      named("tie-b"),
+      named("alpha"),
+    ]);
   });
 
   test("refuses a row that breaks a state's rule, so the database holds them", () => {
