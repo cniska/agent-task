@@ -93,7 +93,8 @@ test("AC-23 doctor judges each running task's repository and brief without conta
   const nowhere = join(w.root, "nowhere.git");
   const healthy = repo(w, "healthy");
   git(w, healthy, ["remote", "add", "origin", nowhere]);
-  started(w, "task-a", healthy, brief(briefs, "a.md"));
+  const readable = brief(briefs, "a.md");
+  started(w, "task-a", healthy, readable);
   started(w, "task-b", repo(w, "no-origin"), brief(briefs, "b.md"));
   const moved = repo(w, "moved");
   git(w, moved, ["remote", "add", "origin", nowhere]);
@@ -125,6 +126,12 @@ test("AC-23 doctor judges each running task's repository and brief without conta
     "task-e brief",
   ]);
   expect(check(printed, "task-a repository")).toMatchObject({ state: "ok", fix: null });
+  expect(check(printed, "task-a brief")).toEqual({
+    name: "task-a brief",
+    state: "ok",
+    detail: `${readable} is readable`,
+    fix: null,
+  });
   expect(check(printed, "task-b repository")).toMatchObject({
     state: "fail",
     fix: `add the remote the work lands on as origin in ${join(w.root, "no-origin")}, then run the command again`,
