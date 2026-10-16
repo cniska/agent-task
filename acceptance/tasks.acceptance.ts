@@ -223,7 +223,7 @@ test("AC-8 list prints running tasks oldest first, reading each brief afresh to 
   ]);
 });
 
-test("AC-9 done closes a task only when every sha is on origin's default branch, recording each full sha once", () => {
+test("AC-9 done closes a task only when every sha is on origin's default branch, recording each full sha once, and refuses a ref name", () => {
   const w = world();
   const dir = landedRepo(w);
   const file = brief(w.root);
@@ -244,6 +244,12 @@ test("AC-9 done closes a task only when every sha is on origin's default branch,
     code: "not_landed",
     meta: { name: "task-b", branch: "origin/main", unknown: [unknown], unmerged: [unpushed] },
   });
+  expect(listed(w).map(({ name }) => name)).toEqual(["task-b"]);
+  for (const ref of ["HEAD", "origin/main"])
+    expect(refusal(run(w, w.root, ["done", "task-b", "--commit", ref]))).toMatchObject({
+      code: "invalid_sha",
+      meta: { name: "task-b", values: [ref] },
+    });
   expect(listed(w).map(({ name }) => name)).toEqual(["task-b"]);
   git(w, dir, ["push", "-q", "origin", "main"]);
   expect(result(run(w, w.root, args))).toMatchObject({ state: "done", commits: [pushed, unpushed] });
@@ -287,7 +293,7 @@ test("AC-11 drop ends a running task with its reason; an ended, unknown or inval
   });
   for (const args of [
     ["drop", "task-a", "--reason", "again"],
-    ["done", "task-a", "--commit", "abc"],
+    ["done", "task-a", "--commit", "abcd"],
   ]) {
     expect(refusal(run(w, w.root, args))).toMatchObject({
       code: "not_running",
@@ -299,7 +305,7 @@ test("AC-11 drop ends a running task with its reason; an ended, unknown or inval
   expect(unknown.resolve).toBe("agent-task start nobody --repo <path> --brief <file>");
   for (const args of [
     ["drop", "Task_A", "--reason", "x"],
-    ["done", "Task_A", "--commit", "abc"],
+    ["done", "Task_A", "--commit", "abcd"],
   ])
     expect(refusal(run(w, w.root, args))).toMatchObject({ code: "invalid_name", meta: { name: "Task_A" } });
   expect(listed(w)).toEqual([]);

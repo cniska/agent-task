@@ -1,7 +1,16 @@
 import { realpathSync, statSync } from "node:fs";
 import { invariant, unreachable } from "./assert";
 import { refusals } from "./coded-error";
-import { blobSha, commitOf, isAncestor, landingBranch, mainWorkingTree, type ProcessEnv } from "./git";
+import {
+  blobSha,
+  commitOf,
+  isAncestor,
+  isSha,
+  landingBranch,
+  mainWorkingTree,
+  type ProcessEnv,
+  type Sha,
+} from "./git";
 import {
   type Commits,
   type Done,
@@ -54,6 +63,7 @@ function admittedText(name: string, state: State, admits: readonly string[]): st
 
 const refuse = refusals<{
   readonly invalid_name: { readonly name: string };
+  readonly invalid_sha: { readonly name: string; readonly values: readonly string[] };
   readonly brief_unreadable: { readonly brief: string };
   readonly name_taken: { readonly name: string; readonly state: State; readonly admits: readonly string[] };
   readonly not_running: {
@@ -75,6 +85,11 @@ const refuse = refusals<{
     message: ({ name }) =>
       `${JSON.stringify(name)} is not a task name: lowercase letters and digits in dash-separated words`,
     resolve: () => "pass a kebab-case name such as task-first-version",
+  },
+  invalid_sha: {
+    message: ({ values }) => `not a commit sha: ${values.map((value) => JSON.stringify(value)).join(", ")}`,
+    resolve: ({ name }) =>
+      `name each commit by its sha, in full or at least its first 4 hex digits: agent-task done ${name} --commit <sha>...`,
   },
   brief_unreadable: {
     message: ({ brief }) => `${brief} is not a readable file`,
@@ -122,6 +137,18 @@ function parseName(name: string): TaskName {
   return name;
 }
 
+function parseShas(name: TaskName, values: readonly [string, ...string[]]): readonly Sha[] {
+  const shas: Sha[] = [];
+  const invalid: string[] = [];
+  for (const value of values) {
+    const sha = value.toLowerCase();
+    if (isSha(sha)) shas.push(sha);
+    else invalid.push(value);
+  }
+  if (invalid.length > 0) throw refuse("invalid_sha", { name, values: invalid });
+  return shas;
+}
+
 function isDirectory(path: string): boolean {
   return statSync(path, { throwIfNoEntry: false })?.isDirectory() === true;
 }
@@ -159,9 +186,10 @@ export function drop({ store, now }: Context, raw: string, reason: string): Drop
 export function done(
   { store, processEnv, now }: Context,
   raw: string,
-  shas: readonly [string, ...string[]],
+  values: readonly [string, ...string[]],
 ): Done {
   const name = parseName(raw);
+  const shas = parseShas(name, values);
   const task = taskByName(store, name);
   if (task === null || task.state !== "running") throw refuseByState("done", name, task);
   if (!isDirectory(task.repo)) throw refuse("repo_missing", { name, repo: task.repo });

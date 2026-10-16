@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { isSha, type Sha } from "./git";
 import { isTaskName, type TaskName } from "./store";
 
 const scratchDirs: string[] = [];
@@ -50,5 +51,10 @@ export function brief(dir: string, text = "# Brief\n"): string {
 
 export function named(raw: string): TaskName {
   if (!isTaskName(raw)) throw new Error(`${raw} is no task name`);
+  return raw;
+}
+
+export function sha(raw: string): Sha {
+  if (!isSha(raw)) throw new Error(`${raw} is no sha`);
   return raw;
 }

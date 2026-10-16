@@ -143,13 +143,21 @@ export function landingBranch(repo: string, processEnv: ProcessEnv): Landing {
   return { ref: tracking, branch: `${REMOTE}/${branch}` };
 }
 
-export function commitOf(repo: string, sha: string, processEnv: ProcessEnv): string | null {
+export type Sha = string & { readonly __brand: "Sha" };
+
+const SHA = /^[0-9a-f]{4,40}$/;
+
+export function isSha(value: string): value is Sha {
+  return SHA.test(value);
+}
+
+export function commitOf(repo: string, sha: Sha, processEnv: ProcessEnv): string | null {
   const run = git(
     repo,
     ["rev-parse", "--verify", "--quiet", "--end-of-options", `${sha}^{commit}`],
     processEnv,
   );
-  return run.ok ? run.out : null;
+  return run.ok && run.out.startsWith(sha) ? run.out : null;
 }
 
 export function isAncestor(repo: string, commit: string, ref: string, processEnv: ProcessEnv): boolean {

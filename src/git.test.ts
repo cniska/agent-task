@@ -1,8 +1,8 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { blobSha, commitOf, isAncestor, landingBranch, mainWorkingTree } from "./git";
-import { commit, git, removeScratchDirs, repo, scratchDir, withOrigin } from "./repo.test-support";
+import { blobSha, commitOf, isAncestor, isSha, landingBranch, mainWorkingTree } from "./git";
+import { commit, git, removeScratchDirs, repo, scratchDir, sha, withOrigin } from "./repo.test-support";
 
 afterAll(removeScratchDirs);
 
@@ -95,11 +95,20 @@ describe("landing", () => {
     );
   });
 
-  test("resolves a sha to its full commit, and an unknown one to null", () => {
+  test("takes as a sha only 4 to 40 lowercase hex digits", () => {
+    for (const value of ["abcd", "0".repeat(40), "0123456789abcdef"]) expect(isSha(value)).toBe(true);
+    for (const value of ["abc", "0".repeat(41), "ABCD", "HEAD", "origin/main", "main", "HEAD~3", "--all", ""])
+      expect(isSha(value)).toBe(false);
+  });
+
+  test("resolves a sha to its full commit, and an unknown one or a hex-named ref to null", () => {
     const main = repo();
     const head = git(main, ["rev-parse", "HEAD"]);
-    expect(commitOf(main, head.slice(0, 10), processEnv)).toBe(head);
-    expect(commitOf(main, "0".repeat(40), processEnv)).toBeNull();
-    expect(commitOf(main, "--all", processEnv)).toBeNull();
+    expect(commitOf(main, sha(head.slice(0, 10)), processEnv)).toBe(head);
+    expect(commitOf(main, sha("0".repeat(40)), processEnv)).toBeNull();
+    const tip = commit(main, "second");
+    const hexRef = tip.startsWith("abcd") ? "dcba" : "abcd";
+    git(main, ["branch", hexRef, tip]);
+    expect(commitOf(main, sha(hexRef), processEnv)).toBeNull();
   });
 });

@@ -171,7 +171,7 @@ describe("done", () => {
     withOrigin(dir);
     const landed = commit(dir, "work");
     git(dir, ["push", "-q", "origin", "main"]);
-    expect(done(later(ctx), "task-a", [landed.slice(0, 12), landed])).toEqual({
+    expect(done(later(ctx), "task-a", [landed.slice(0, 12), landed.toUpperCase(), landed])).toEqual({
       ...task,
       state: "done",
       ended: "2026-10-16T11:00:00.000Z",
@@ -211,6 +211,19 @@ describe("done", () => {
     expect(taskByName(ctx.store, named("task-a"))).toMatchObject({ state: "running" });
   });
 
+  test("refuses a commit given by anything but its sha before reaching git, naming each, and leaves the task running", () => {
+    const ctx = context();
+    const { dir } = started(ctx);
+    const head = git(dir, ["rev-parse", "HEAD"]);
+    expect(() => done(ctx, "task-a", [head, "HEAD", "origin/main", "abc"])).toThrow(
+      expect.objectContaining({
+        code: "invalid_sha",
+        meta: { name: "task-a", values: ["HEAD", "origin/main", "abc"] },
+      }),
+    );
+    expect(taskByName(ctx.store, named("task-a"))).toMatchObject({ state: "running" });
+  });
+
   test("refuses an invalid name for drop and done as it does for start", () => {
     const ctx = context();
     expect(() => drop(ctx, "Task_A", "gone")).toThrow(
@@ -226,13 +239,13 @@ describe("done", () => {
     const { dir } = started(ctx);
     drop(ctx, "task-a", "given up");
     rmSync(dir, { recursive: true });
-    expect(() => done(ctx, "task-a", ["abc"])).toThrow(
+    expect(() => done(ctx, "task-a", ["abcd"])).toThrow(
       expect.objectContaining({
         code: "not_running",
         meta: { name: "task-a", act: "done", state: "dropped", admits: [] },
       }),
     );
-    expect(() => done(ctx, "task-b", ["abc"])).toThrow(expect.objectContaining({ code: "unknown_task" }));
+    expect(() => done(ctx, "task-b", ["abcd"])).toThrow(expect.objectContaining({ code: "unknown_task" }));
   });
 
   test("closes a task started from a linked worktree after that worktree is removed", () => {
