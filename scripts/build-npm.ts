@@ -14,8 +14,9 @@ const SCOPE = "@cniska";
 const NAME = "agent-task";
 const REPOSITORY = { type: "git", url: "git+https://github.com/cniska/agent-task.git" } as const;
 const HOMEPAGE = "https://github.com/cniska/agent-task";
-const README = join(import.meta.dir, "..", "README.md");
-const LAUNCHER = join(import.meta.dir, "..", "npm", NAME);
+const ROOT = join(import.meta.dir, "..");
+const README = join(ROOT, "README.md");
+const LAUNCHER = join(ROOT, "npm", NAME);
 const BUILDS_TOKEN = "__BUILDS__";
 const TAGLINE = /^> (.+)$/m;
 
@@ -77,7 +78,6 @@ function extractBinary(tarball: string, into: string): void {
 }
 
 function buildTree(artifactsDir: string, outDir: string): void {
-  const root = join(import.meta.dir, "..");
   rmSync(outDir, { recursive: true, force: true });
   for (const platform of PLATFORMS) {
     const dir = join(outDir, platformTarget(platform));
@@ -91,7 +91,7 @@ function buildTree(artifactsDir: string, outDir: string): void {
   writeFileSync(join(shim, "bin", NAME), launcher(PLATFORMS));
   chmodSync(join(shim, "bin", NAME), 0o755);
   copyFileSync(README, join(shim, "README.md"));
-  copyFileSync(join(root, "LICENSE"), join(shim, "LICENSE"));
+  copyFileSync(join(ROOT, "LICENSE"), join(shim, "LICENSE"));
 }
 
 if (import.meta.main) {

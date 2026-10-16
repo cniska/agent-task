@@ -189,7 +189,7 @@ describe("the store", () => {
     expect(stopTask(store, named("a"))).toEqual({ ...QUEUED, state: "queued" });
   });
 
-  test("stops only a running task back to queued, keeping its added time, and removes a task in any state", () => {
+  test("stops a running or in-review task back to queued, keeping its added time, and removes a task in any state", () => {
     const store = freshStore();
     insertRunning(store, RUNNING);
     insertQueued(store, { ...QUEUED, name: named("b") });

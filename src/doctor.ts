@@ -6,12 +6,11 @@ import { permits } from "./file";
 import { mainWorkingTree, type ProcessEnv } from "./git";
 import {
   closeStore,
-  type InReview,
   queuedTasks,
   type Read,
-  type Running,
   readStore,
   SCHEMA_VERSION,
+  type Started,
   type Store,
   startedTasks,
   type Task,
@@ -133,7 +132,7 @@ function repositoryHealth(task: Task, processEnv: ProcessEnv, gitFound: boolean)
   return { name, state: "ok", detail: `${task.repo} is its own main working tree`, fix: null };
 }
 
-function briefHealth(task: Running | InReview): Health {
+function briefHealth(task: Started): Health {
   const name = `${task.name} brief`;
   if (permits(task.brief, constants.R_OK))
     return { name, state: "ok", detail: `${task.brief} is readable`, fix: null };

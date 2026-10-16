@@ -119,16 +119,18 @@ type Added = {
 
 export type Queued = Added & { readonly state: "queued"; readonly after: readonly TaskName[] };
 
-type Started = Added & {
+type Briefed = Added & {
   readonly brief: string;
   readonly briefSha: string;
   readonly session: string | null;
   readonly started: string;
 };
 
-export type Running = Started & { readonly state: "running" };
+export type Running = Briefed & { readonly state: "running" };
 
-export type InReview = Started & { readonly state: "review"; readonly reviewed: string };
+export type InReview = Briefed & { readonly state: "review"; readonly reviewed: string };
+
+export type Started = Running | InReview;
 
 export type Task = Queued | Running | InReview;
 
@@ -320,7 +322,7 @@ function parseInReview(value: unknown): InReview {
   return task;
 }
 
-function parseStarted(value: unknown): Running | InReview {
+function parseStarted(value: unknown): Started {
   const task = parseTask(value, []);
   invariant(task.state !== "queued", "a started row is running or in review");
   return task;
@@ -506,7 +508,7 @@ export function taskByName(store: Store, name: TaskName): Task | null {
   });
 }
 
-export function startedTasks(store: Store): readonly (Running | InReview)[] {
+export function startedTasks(store: Store): readonly Started[] {
   const { db } = store;
   const rows = translated(store, () =>
     db

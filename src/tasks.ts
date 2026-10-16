@@ -16,6 +16,7 @@ import {
   removeTask,
   replaceQueued,
   reviewTask,
+  type Started,
   type Store,
   setWaiting,
   startedTasks,
@@ -209,7 +210,7 @@ export function review({ store, now }: Context, raw: string): InReview {
   return reviewed;
 }
 
-type Listed = (Running | InReview) & { readonly briefChanged: boolean };
+type Listed = Started & { readonly briefChanged: boolean };
 
 export type Listing = {
   readonly tasks: readonly Listed[];
