@@ -26,7 +26,7 @@ Each command prints one JSON line: a result on stdout, or an error on stderr nam
 | `agent-task list` | List the running tasks, oldest first, flagging each whose brief changed since it started |
 | `agent-task done <name> --commit <sha>...` | Close a running task once every commit is reachable from origin's default branch, after a fetch |
 | `agent-task drop <name> --reason <text>` | Close a running task whose work was given up or whose worker died |
-| `agent-task --version` | Print the version |
+| `agent-task --version` | Print the version alone on one line, not as JSON |
 
 `done` and `drop` are final, and a name stays taken after either.
 
