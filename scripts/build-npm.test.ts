@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { launcher, PLATFORMS, platformManifest, platformTarball, shimManifest } from "./build-npm";
 
 describe("the npm packages", () => {
@@ -18,6 +20,13 @@ describe("the npm packages", () => {
       },
     });
     expect(shimManifest("1.2.3", PLATFORMS)).not.toHaveProperty("engines");
+  });
+
+  test("describe the shim with the README's tagline, so the package says what the README says", () => {
+    const readme = readFileSync(join(import.meta.dir, "..", "README.md"), "utf8").split("\n");
+    const quoted = readme.find((line) => line.startsWith("> ")) ?? "";
+    expect(quoted).toStartWith("> Task tracking for coding agents:");
+    expect(shimManifest("1.2.3", PLATFORMS).description).toBe(quoted.slice(2));
   });
 
   test("ship a POSIX shell launcher that names the release builds", () => {

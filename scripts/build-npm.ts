@@ -14,10 +14,16 @@ const SCOPE = "@cniska";
 const NAME = "agent-task";
 const REPOSITORY = { type: "git", url: "git+https://github.com/cniska/agent-task.git" } as const;
 const HOMEPAGE = "https://github.com/cniska/agent-task";
+const README = join(import.meta.dir, "..", "README.md");
 const LAUNCHER = join(import.meta.dir, "..", "npm", NAME);
 const BUILDS_TOKEN = "__BUILDS__";
-const SUMMARY =
-  "Task tracking for coding agents: the tasks running in parallel, each with its repo and the brief it started from";
+const TAGLINE = /^> (.+)$/m;
+
+function tagline(): string {
+  const found = readFileSync(README, "utf8").match(TAGLINE)?.[1];
+  if (found === undefined) throw new Error(`${README} has no "> " tagline line`);
+  return found;
+}
 
 const platformTarget = ({ os, cpu }: Platform): string => `${os}-${cpu}`;
 
@@ -43,7 +49,7 @@ export function shimManifest(version: string, platforms: readonly Platform[]): R
   return {
     name: `${SCOPE}/${NAME}`,
     version,
-    description: SUMMARY,
+    description: tagline(),
     license: "MIT",
     homepage: HOMEPAGE,
     repository: REPOSITORY,
@@ -84,7 +90,7 @@ function buildTree(artifactsDir: string, outDir: string): void {
   writeJson(join(shim, "package.json"), shimManifest(version, PLATFORMS));
   writeFileSync(join(shim, "bin", NAME), launcher(PLATFORMS));
   chmodSync(join(shim, "bin", NAME), 0o755);
-  copyFileSync(join(root, "README.md"), join(shim, "README.md"));
+  copyFileSync(README, join(shim, "README.md"));
   copyFileSync(join(root, "LICENSE"), join(shim, "LICENSE"));
 }
 
