@@ -1,9 +1,9 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
-import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { brief, launcher, type Ran, removeScratch, repo, result, run, type World, world } from "./harness";
+import { binWith, brief, type Ran, removeScratch, repo, result, run, type World, world } from "./harness";
 
 afterEach(removeScratch);
 
@@ -38,15 +38,6 @@ function hookOf(event: string): Hook {
 function pluginName(): unknown {
   const parsed: unknown = JSON.parse(readFileSync(join(PLUGIN, ".claude-plugin", "plugin.json"), "utf8"));
   return isRecord(parsed) ? parsed.name : null;
-}
-
-function binWith(w: World, programs: readonly string[], cli: boolean, name = "bin"): string {
-  const bin = join(w.root, name);
-  mkdirSync(bin);
-  for (const program of programs)
-    symlinkSync(execFileSync("which", [program], { encoding: "utf8" }).trim(), join(bin, program));
-  if (cli) launcher(bin);
-  return bin;
 }
 
 function hook(w: World, bin: string, event: string, cwd: string, input: unknown): Ran {

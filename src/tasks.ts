@@ -44,7 +44,7 @@ export const USAGE = {
   drop: "agent-task drop <name> --reason <text>",
 } as const;
 
-function actFor(usage: string, name: string): string {
+export function actFor(usage: string, name: string): string {
   return usage.replace("<name>", name);
 }
 
@@ -153,7 +153,7 @@ function parseShas(name: TaskName, values: readonly [string, ...string[]]): read
   return shas;
 }
 
-function requireRepository(task: Running): void {
+export function requireRepository(task: Running): void {
   if (statSync(task.repo, { throwIfNoEntry: false })?.isDirectory() !== true)
     throw refuse("repo_missing", { name: task.name, repo: task.repo });
 }

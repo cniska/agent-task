@@ -21,6 +21,7 @@ Another module reaches a module only through its bare-named file, so `cli`'s par
 | `tasks` | The domain: `start`, `list`, `done` and `drop`, the `invalid_name` and `invalid_sha` refusals of a name and a commit's sha, and the commands each state admits, which every state refusal names |
 | `store` | The SQLite store: opening it, its schema and version, the `TaskName` type and its kebab-case rule, and the statements that insert, end and read tasks, returning the row or `null` |
 | `git` | Run git and read what it prints, and the `Sha` type and its rule of 4 to 40 hex digits: a path's main working tree, a file's blob sha, origin's default branch and whether a commit is reachable from it; the only module that starts a process |
+| `doctor` | `doctor`: what agent-task and its plugin need, judged from the store, each running task's repository and brief, git and the directories on `PATH`, each check with its state and fix; it writes no task and no schema |
 | `paths` | The data directory and the store's path, from the environment the entry passes in |
 | `coded-error` | Usage errors, refusals and faults with a code, their facts and the act that resolves them, and the exit status of each kind |
 | `assert` | `unreachable` and `invariant`, faults that name a bug |

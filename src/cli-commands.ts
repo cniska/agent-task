@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { type Command, type Outcome, type Runtime, usageError } from "./cli-contract";
 import { messageOf } from "./coded-error";
+import { DOCTOR_USAGE, doctor } from "./doctor";
 import { storePath } from "./paths";
 import { closeStore, openStore } from "./store";
 import { type Context, done, drop, list, start, USAGE } from "./tasks";
@@ -33,6 +34,11 @@ function parsed(command: Command, args: readonly string[], options: Flags): Pars
 
 function refuseArguments(command: Command, detail: string): never {
   throw usageError("bad_arguments", { command: command.name, detail, usage: command.usage });
+}
+
+function noArguments(command: Command, positionals: readonly string[]): void {
+  if (positionals.length > 0)
+    refuseArguments(command, `takes no argument, and got: ${positionals.join(" ")}`);
 }
 
 function oneName(command: Command, positionals: readonly string[]): string {
@@ -92,8 +98,7 @@ const listCommand: Command = {
   usage: USAGE.list,
   summary: "list the running tasks, flagging each whose brief changed since it started",
   run(args, runtime) {
-    const { positionals } = parsed(this, args, {});
-    if (positionals.length > 0) refuseArguments(this, `takes no argument, and got: ${positionals.join(" ")}`);
+    noArguments(this, parsed(this, args, {}).positionals);
     return withContext(runtime, (context) => ({ tasks: list(context) }));
   },
 };
@@ -122,4 +127,26 @@ const dropCommand: Command = {
   },
 };
 
-export const COMMANDS: readonly Command[] = [startCommand, listCommand, doneCommand, dropCommand];
+const doctorCommand: Command = {
+  name: "doctor",
+  usage: DOCTOR_USAGE,
+  summary: "report what agent-task and its plugin need in order to work, naming the fix for each failure",
+  run(args, runtime) {
+    noArguments(this, parsed(this, args, {}).positionals);
+    const report = doctor({
+      storePath: storePath(runtime.env),
+      busyWaitMs: runtime.busyWaitMs,
+      processEnv: runtime.processEnv,
+      searchPath: runtime.searchPath,
+    });
+    return { value: report, status: report.failing === 0 ? 0 : 1 };
+  },
+};
+
+export const COMMANDS: readonly Command[] = [
+  startCommand,
+  listCommand,
+  doneCommand,
+  dropCommand,
+  doctorCommand,
+];

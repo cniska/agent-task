@@ -1,18 +1,9 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  binWith,
   brief,
   commit,
   git,
@@ -324,13 +315,11 @@ test("AC-12 a store of another schema version is refused and left as it is", () 
   expect(readFileSync(path).equals(before)).toBe(true);
 });
 
-test("AC-17 every command runs with git as the only program on PATH", () => {
+test("AC-17 every command runs with git as the only program on PATH, and doctor names the hooks' missing programs", () => {
   const w = world();
   const dir = landedRepo(w);
   const file = brief(w.root);
-  const bin = join(w.root, "bin");
-  mkdirSync(bin);
-  symlinkSync(execFileSync("which", ["git"], { encoding: "utf8" }).trim(), join(bin, "git"));
+  const bin = binWith(w, ["git"], false);
   const options = { env: { PATH: bin } };
   const head = git(w, dir, ["rev-parse", "HEAD"]);
   for (const args of [
@@ -341,4 +330,21 @@ test("AC-17 every command runs with git as the only program on PATH", () => {
     ["drop", "task-b", "--reason", "given up"],
   ])
     expect(run(w, w.root, args, options).exitCode).toBe(0);
+  const { checks } = result(run(w, w.root, ["doctor"], options));
+  if (!Array.isArray(checks)) throw new Error("doctor prints its checks");
+  const byName = new Map(checks.map((check) => [check.name, check]));
+  expect(byName.get("git")).toEqual({
+    name: "git",
+    state: "ok",
+    detail: `found at ${join(bin, "git")}`,
+    fix: null,
+  });
+  for (const program of ["bash", "agent-task", "jq", "realpath"]) {
+    const check = byName.get(program);
+    expect(check).toMatchObject({ name: program, state: "warn" });
+    expect(check.detail).toContain(`not found in ${bin}`);
+    expect(check.detail).toContain("before-edit.sh");
+    expect(check.detail).toContain("session-start.sh");
+    expect(check.fix).toContain(program);
+  }
 });

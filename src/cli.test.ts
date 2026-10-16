@@ -10,9 +10,13 @@ const dataHome = scratchDir();
 afterAll(removeScratchDirs);
 
 function cli(...args: string[]) {
+  return cliWith({}, ...args);
+}
+
+function cliWith(env: Readonly<Record<string, string>>, ...args: string[]) {
   const run = spawnSync(process.execPath, [CLI, ...args], {
     encoding: "utf8",
-    env: { ...process.env, XDG_DATA_HOME: dataHome },
+    env: { ...process.env, XDG_DATA_HOME: dataHome, ...env },
   });
   return { status: run.status, stdout: run.stdout, stderr: run.stderr };
 }
@@ -29,6 +33,7 @@ describe("the cli", () => {
       "list",
       "done",
       "drop",
+      "doctor",
     ]);
   });
 
@@ -38,6 +43,13 @@ describe("the cli", () => {
       stdout: '{"command":"list","ok":true,"result":{"tasks":[]}}\n',
       stderr: "",
     });
+  });
+
+  test("prints doctor's report as a result on stdout, exit 1 when a check fails", () => {
+    const run = cliWith({ PATH: "" }, "doctor");
+    expect([run.status, run.stderr]).toEqual([1, ""]);
+    expect(run.stdout.split("\n")).toHaveLength(2);
+    expect(JSON.parse(run.stdout)).toMatchObject({ command: "doctor", ok: true, result: { failing: 1 } });
   });
 
   test("exits 1 with one JSON line on stderr for a refusal", () => {
@@ -60,8 +72,8 @@ describe("the cli", () => {
         kind: "usage",
         code: "unknown_command",
         message: "frobnicate is not an agent-task command; agent-task with no command lists them",
-        meta: { name: "frobnicate", usage: "agent-task start|list|done|drop|--version" },
-        resolve: "agent-task start|list|done|drop|--version",
+        meta: { name: "frobnicate", usage: "agent-task start|list|done|drop|doctor|--version" },
+        resolve: "agent-task start|list|done|drop|doctor|--version",
       },
     });
   });
@@ -71,6 +83,7 @@ describe("the cli", () => {
       ["start", "a"],
       ["start", "a", "b", "--repo", ".", "--brief", "x"],
       ["list", "extra"],
+      ["doctor", "extra"],
       ["done", "a"],
       ["done", "a", "--commit", ""],
       ["drop", "a", "--reason", " "],

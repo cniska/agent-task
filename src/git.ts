@@ -131,9 +131,13 @@ function remoteOutput(repo: string, args: readonly string[], processEnv: Process
 
 export type Landing = { readonly ref: string; readonly branch: string };
 
-export function landingBranch(repo: string, processEnv: ProcessEnv): Landing {
+export function requireOrigin(repo: string, processEnv: ProcessEnv): void {
   if (!git(repo, ["config", "--get", `remote.${REMOTE}.url`], processEnv).ok)
     throw refuse("no_origin", { repo });
+}
+
+export function landingBranch(repo: string, processEnv: ProcessEnv): Landing {
+  requireOrigin(repo, processEnv);
   const branch = HEAD_SYMREF.exec(
     remoteOutput(repo, ["ls-remote", "--symref", REMOTE, "HEAD"], processEnv),
   )?.[1];

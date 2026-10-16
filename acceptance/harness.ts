@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -45,10 +45,19 @@ function environment(w: World, { env, unset }: RunOptions): Env {
   return Object.fromEntries(Object.entries({ ...w.env, ...env }).filter(([name]) => !unset?.includes(name)));
 }
 
-export function launcher(bin: string): void {
+function launcher(bin: string): void {
   const path = join(bin, "agent-task");
   writeFileSync(path, `#!/bin/sh\nexec "${process.execPath}" "${ENTRY}" "$@"\n`);
   chmodSync(path, 0o755);
+}
+
+export function binWith(w: World, programs: readonly string[], cli: boolean, name = "bin"): string {
+  const bin = join(w.root, name);
+  mkdirSync(bin);
+  for (const program of programs)
+    symlinkSync(execFileSync("which", [program], { encoding: "utf8" }).trim(), join(bin, program));
+  if (cli) launcher(bin);
+  return bin;
 }
 
 export function run(w: World, cwd: string, args: readonly string[], options: RunOptions = {}): Ran {

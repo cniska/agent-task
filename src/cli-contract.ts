@@ -6,6 +6,7 @@ export type Runtime = {
   readonly cwd: string;
   readonly env: Env;
   readonly processEnv: ProcessEnv;
+  readonly searchPath: readonly string[];
   readonly busyWaitMs: number;
   readonly now: () => Date;
 };

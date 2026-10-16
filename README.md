@@ -34,9 +34,10 @@ Each command prints one JSON line: a result on stdout, or an error on stderr nam
 | `agent-task list` | List the running tasks, oldest first, flagging each whose brief changed since it started |
 | `agent-task done <name> --commit <sha>...` | Close a running task once every commit is reachable from origin's default branch, after a fetch |
 | `agent-task drop <name> --reason <text>` | Close a running task whose work was given up |
+| `agent-task doctor` | Report what agent-task and its plugin need: the store, `bash`, `agent-task`, `jq`, `realpath` and git on `PATH`, and each running task's repository and brief, each check `ok`, `warn` or `fail` with its fix; exit 1 when one fails |
 | `agent-task --version` | Print the version alone on one line, not as JSON |
 
-`done` and `drop` are final, and a name stays taken after either.
+`done` and `drop` are final, and a name stays taken after either. `doctor` contacts no remote: whether origin answers is `done`'s to find.
 
 ## Claude Code plugin
 
@@ -45,7 +46,7 @@ The `cniska-task` plugin, in `plugin/`, keeps a running task's brief from changi
 - Before each `Edit`, `Write` or `MultiEdit`, it denies an edit to a file that is the brief of a running task. The denial names the task and what to do, in order: `agent-task drop <name> --reason <text>`, then the edit, then `agent-task start <new-name> --repo <repo> --brief <file>` under a name the store has never held. A brief that is gone is still matched by its path. Every other edit passes without a word.
 - When a session starts, resumes, clears or compacts in a working directory that holds the brief of a running task, it puts the running tasks in the session's context as `list` prints them, `briefChanged` included. Elsewhere it prints nothing.
 
-A hook prints nothing and denies nothing when `agent-task` is not on `PATH` or `list` is refused, and never exits with an error. Without `jq` or `realpath` it leaves a note on stderr.
+A hook prints nothing and denies nothing when `agent-task` is not on `PATH` or `list` is refused, and never exits with an error. Without `jq` or `realpath` it leaves a note on stderr. When a hook is silent, run `agent-task doctor`. The hooks see the `PATH` Claude Code started with, which can differ from a shell's, for example when the desktop app is opened from the Dock, so run `doctor` under that `PATH`.
 
 ## Development
 

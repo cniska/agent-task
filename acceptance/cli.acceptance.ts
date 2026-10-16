@@ -22,6 +22,13 @@ test("AC-14 no command and --help list the commands and the version flag as one 
   expect([bare.exitCode, bare.stderr]).toEqual([0, ""]);
   const listed = JSON.parse(bare.stdout);
   expect(listed).toMatchObject({ command: "agent-task", ok: true });
+  expect(listed.result.commands.map(({ name }: { name: string }) => name)).toEqual([
+    "start",
+    "list",
+    "done",
+    "drop",
+    "doctor",
+  ]);
   expect(listed.result.flags).toEqual([
     { name: "--version", usage: "agent-task --version", summary: "print the version alone on one line" },
   ]);

@@ -1,5 +1,5 @@
 import { Database, SQLiteError } from "bun:sqlite";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { invariant } from "./assert";
 import { BUG, faults, refusals } from "./coded-error";
@@ -120,10 +120,12 @@ function holdsNoTables(db: Database): boolean {
   return db.query<{ n: number }, []>("SELECT count(*) AS n FROM sqlite_master").get()?.n === 0;
 }
 
-function connect(path: string, busyWaitMs: number): Database {
-  mkdirSync(dirname(path), { recursive: true });
+type Opening = "create" | "existing";
+
+function connect(path: string, busyWaitMs: number, opening: Opening): Database {
+  if (opening === "create") mkdirSync(dirname(path), { recursive: true });
   try {
-    const db = new Database(path, { create: true, strict: true });
+    const db = new Database(path, { readwrite: true, create: opening === "create", strict: true });
     db.run(`PRAGMA busy_timeout = ${busyWaitMs}`);
     userVersion(db);
     return db;
@@ -155,7 +157,7 @@ function enableWal(db: Database, busyWaitMs: number): void {
 }
 
 export function openStore(path: string, busyWaitMs: number): Store {
-  const db = connect(path, busyWaitMs);
+  const db = connect(path, busyWaitMs, "create");
   try {
     translated({ path, busyWaitMs }, () => db.transaction(() => refuseOtherVersion(db, path)).deferred());
     translated({ path, busyWaitMs }, () => {
@@ -171,6 +173,30 @@ export function openStore(path: string, busyWaitMs: number): Store {
     db.close();
     throw error;
   }
+}
+
+function holdsThisSchema(db: Database, path: string, busyWaitMs: number): boolean {
+  return translated({ path, busyWaitMs }, () =>
+    db
+      .transaction(() => {
+        refuseOtherVersion(db, path);
+        return !holdsNoTables(db);
+      })
+      .deferred(),
+  );
+}
+
+export function readStore(path: string, busyWaitMs: number): Store | null {
+  if (!existsSync(path)) return null;
+  const db = connect(path, busyWaitMs, "existing");
+  try {
+    if (holdsThisSchema(db, path, busyWaitMs)) return { db, path, busyWaitMs };
+  } catch (error) {
+    db.close();
+    throw error;
+  }
+  db.close();
+  return null;
 }
 
 function text(row: Record<string, unknown>, column: string): string {
