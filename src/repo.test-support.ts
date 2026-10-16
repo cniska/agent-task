@@ -2,7 +2,6 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isSha, type Sha } from "./git";
 import { isTaskName, type TaskName } from "./store";
 
 const scratchDirs: string[] = [];
@@ -21,7 +20,7 @@ export function git(cwd: string, args: readonly string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: "pipe" }).trim();
 }
 
-export function commit(repo: string, file: string): string {
+function commit(repo: string, file: string): string {
   writeFileSync(join(repo, file), `${file}\n`);
   git(repo, ["add", file]);
   git(repo, ["commit", "-q", "-m", file]);
@@ -35,14 +34,6 @@ export function repo(): string {
   return dir;
 }
 
-export function withOrigin(dir: string): string {
-  const origin = join(scratchDir(), "origin.git");
-  execFileSync("git", ["init", "-q", "--bare", "-b", "main", origin]);
-  git(dir, ["remote", "add", "origin", origin]);
-  git(dir, ["push", "-q", "origin", "main"]);
-  return origin;
-}
-
 export function brief(dir: string, text = "# Brief\n"): string {
   const path = join(dir, "brief.md");
   writeFileSync(path, text);
@@ -51,10 +42,5 @@ export function brief(dir: string, text = "# Brief\n"): string {
 
 export function named(raw: string): TaskName {
   if (!isTaskName(raw)) throw new Error(`${raw} is no task name`);
-  return raw;
-}
-
-export function sha(raw: string): Sha {
-  if (!isSha(raw)) throw new Error(`${raw} is no sha`);
   return raw;
 }

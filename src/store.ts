@@ -1,33 +1,45 @@
 import { Database, SQLiteError } from "bun:sqlite";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { invariant } from "./assert";
+import { invariant, unreachable } from "./assert";
 import { BUG, faults, refusals } from "./coded-error";
 
-const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
-const SCHEMA = `
+const TABLES = `
 CREATE TABLE tasks (
   name TEXT PRIMARY KEY,
+  state TEXT NOT NULL CHECK (state IN ('queued', 'running')),
   repo TEXT NOT NULL,
-  brief TEXT NOT NULL,
-  brief_sha TEXT NOT NULL,
-  started_at TEXT NOT NULL,
-  state TEXT NOT NULL CHECK (state IN ('running', 'done', 'dropped')),
-  ended_at TEXT,
-  reason TEXT,
-  CHECK ((state = 'running') = (ended_at IS NULL)),
-  CHECK ((state = 'dropped') = (reason IS NOT NULL))
+  added_at TEXT NOT NULL,
+  brief TEXT,
+  brief_sha TEXT,
+  session TEXT,
+  started_at TEXT,
+  CHECK ((state = 'queued') = (brief IS NULL)),
+  CHECK ((brief IS NULL) = (brief_sha IS NULL)),
+  CHECK ((brief IS NULL) = (started_at IS NULL)),
+  CHECK (brief IS NOT NULL OR session IS NULL)
 ) STRICT;
-CREATE TABLE task_commits (
-  task TEXT NOT NULL REFERENCES tasks (name),
-  sha TEXT NOT NULL,
-  PRIMARY KEY (task, sha)
-) STRICT;
-PRAGMA user_version = ${SCHEMA_VERSION};
 `;
 
-const TASK_COLUMNS = "name, repo, brief, brief_sha, started_at, state, ended_at, reason";
+const VERSION_PRAGMA = `PRAGMA user_version = ${SCHEMA_VERSION};`;
+
+const SCHEMA = `${TABLES}${VERSION_PRAGMA}`;
+
+const MIGRATE_FROM_VERSION_ONE = `
+ALTER TABLE tasks RENAME TO tasks_v1;
+DROP TABLE task_commits;
+${TABLES}
+INSERT INTO tasks (name, state, repo, added_at, brief, brief_sha, started_at)
+  SELECT name, 'running', repo, started_at, brief, brief_sha, started_at FROM tasks_v1 WHERE state = 'running';
+DROP TABLE tasks_v1;
+${VERSION_PRAGMA}
+`;
+
+const MIGRATABLE_VERSION = 1;
+
+const TASK_COLUMNS = "name, state, repo, added_at, brief, brief_sha, session, started_at";
 
 const BUSY = "SQLITE_BUSY";
 
@@ -73,27 +85,24 @@ function taskName(row: Record<string, unknown>): TaskName {
   return name;
 }
 
-type Started = {
+type Added = {
   readonly name: TaskName;
   readonly repo: string;
+  readonly added: string;
+};
+
+export type Queued = Added & { readonly state: "queued" };
+
+type Started = Added & {
   readonly brief: string;
   readonly briefSha: string;
+  readonly session: string | null;
   readonly started: string;
 };
 
 export type Running = Started & { readonly state: "running" };
 
-export type Dropped = Started & {
-  readonly state: "dropped";
-  readonly ended: string;
-  readonly reason: string;
-};
-
-export type Commits = readonly [string, ...string[]];
-
-export type Done = Started & { readonly state: "done"; readonly ended: string; readonly commits: Commits };
-
-export type Task = Running | Done | Dropped;
+export type Task = Queued | Running;
 
 export type Store = { readonly db: Database; readonly path: string; readonly busyWaitMs: number };
 
@@ -137,9 +146,13 @@ function connect(path: string, busyWaitMs: number, opening: Opening): Database {
   }
 }
 
-function refuseOtherVersion(db: Database, path: string): void {
+type Found = "current" | "empty" | "migratable";
+
+function versionFound(db: Database, path: string): Found {
   const found = userVersion(db);
-  if (found === SCHEMA_VERSION || (found === 0 && holdsNoTables(db))) return;
+  if (found === SCHEMA_VERSION) return "current";
+  if (found === 0 && holdsNoTables(db)) return "empty";
+  if (found === MIGRATABLE_VERSION) return "migratable";
   throw refuse("store_version", { path, found, expected: SCHEMA_VERSION });
 }
 
@@ -156,18 +169,32 @@ function enableWal(db: Database, busyWaitMs: number): void {
   }
 }
 
+function bringCurrent(db: Database, path: string): void {
+  const found = versionFound(db, path);
+  switch (found) {
+    case "current":
+      return;
+    case "empty":
+      db.run(SCHEMA);
+      return;
+    case "migratable":
+      db.run(MIGRATE_FROM_VERSION_ONE);
+      return;
+    default:
+      unreachable(found);
+  }
+}
+
 export function openStore(path: string, busyWaitMs: number): Store {
   const db = connect(path, busyWaitMs, "create");
   try {
-    translated({ path, busyWaitMs }, () => db.transaction(() => refuseOtherVersion(db, path)).deferred());
+    translated({ path, busyWaitMs }, () => db.transaction(() => versionFound(db, path)).deferred());
     translated({ path, busyWaitMs }, () => {
       enableWal(db, busyWaitMs);
       db.run("PRAGMA foreign_keys = ON");
-      db.transaction(() => {
-        if (userVersion(db) === 0 && holdsNoTables(db)) db.run(SCHEMA);
-      }).immediate();
+      db.transaction(() => bringCurrent(db, path)).immediate();
     });
-    refuseOtherVersion(db, path);
+    invariant(versionFound(db, path) === "current", "an opened store is at this version");
     return { db, path, busyWaitMs };
   } catch (error) {
     db.close();
@@ -175,28 +202,25 @@ export function openStore(path: string, busyWaitMs: number): Store {
   }
 }
 
-function holdsThisSchema(db: Database, path: string, busyWaitMs: number): boolean {
-  return translated({ path, busyWaitMs }, () =>
-    db
-      .transaction(() => {
-        refuseOtherVersion(db, path);
-        return !holdsNoTables(db);
-      })
-      .deferred(),
-  );
-}
+export type Read =
+  | { readonly kind: "none" }
+  | { readonly kind: "migratable"; readonly found: number }
+  | { readonly kind: "open"; readonly store: Store };
 
-export function readStore(path: string, busyWaitMs: number): Store | null {
-  if (!existsSync(path)) return null;
+export function readStore(path: string, busyWaitMs: number): Read {
+  if (!existsSync(path)) return { kind: "none" };
   const db = connect(path, busyWaitMs, "existing");
   try {
-    if (holdsThisSchema(db, path, busyWaitMs)) return { db, path, busyWaitMs };
+    const found = translated({ path, busyWaitMs }, () =>
+      db.transaction(() => versionFound(db, path)).deferred(),
+    );
+    if (found === "current") return { kind: "open", store: { db, path, busyWaitMs } };
+    db.close();
+    return found === "migratable" ? { kind: "migratable", found: MIGRATABLE_VERSION } : { kind: "none" };
   } catch (error) {
     db.close();
     throw error;
   }
-  db.close();
-  return null;
 }
 
 function text(row: Record<string, unknown>, column: string): string {
@@ -218,93 +242,93 @@ function rowRecord(row: unknown): Record<string, unknown> {
   return row;
 }
 
-function commitsOf(db: Database, name: TaskName): Commits {
-  const shas = db
-    .query<unknown, [string]>("SELECT sha FROM task_commits WHERE task = ? ORDER BY rowid")
-    .all(name)
-    .map((row) => text(rowRecord(row), "sha"));
-  const [first, ...rest] = shas;
-  if (first === undefined) throw fault("row_malformed", { detail: `done task ${name} has no commits` });
-  return [first, ...rest];
-}
-
-function parseTask(db: Database, value: unknown): Task {
+function parseTask(value: unknown): Task {
   const row = rowRecord(value);
-  const started: Started = {
-    name: taskName(row),
-    repo: text(row, "repo"),
-    brief: text(row, "brief"),
-    briefSha: text(row, "brief_sha"),
-    started: text(row, "started_at"),
-  };
+  const added: Added = { name: taskName(row), repo: text(row, "repo"), added: text(row, "added_at") };
   const state = text(row, "state");
-  const ended = nullableText(row, "ended_at");
-  const reason = nullableText(row, "reason");
-  if (state === "running" && ended === null) return { ...started, state };
-  if (state === "dropped" && ended !== null && reason !== null) return { ...started, state, ended, reason };
-  if (state === "done" && ended !== null && reason === null)
-    return { ...started, state, ended, commits: commitsOf(db, started.name) };
-  throw fault("row_malformed", { detail: `state ${state} does not fit its ended_at and reason` });
+  const brief = nullableText(row, "brief");
+  const briefSha = nullableText(row, "brief_sha");
+  const started = nullableText(row, "started_at");
+  if (state === "queued" && brief === null) return { ...added, state };
+  if (state === "running" && brief !== null && briefSha !== null && started !== null)
+    return { ...added, state, brief, briefSha, session: nullableText(row, "session"), started };
+  throw fault("row_malformed", { detail: `state ${state} does not fit its brief and times` });
 }
 
-export type NewTask = Omit<Running, "state">;
-
-export function insertTask(store: Store, task: NewTask): Running | null {
-  const { db } = store;
-  const row = translated(store, () =>
-    db
-      .query<unknown, [string, string, string, string, string]>(
-        `INSERT INTO tasks (name, repo, brief, brief_sha, started_at, state)
-         VALUES (?, ?, ?, ?, ?, 'running') ON CONFLICT (name) DO NOTHING RETURNING ${TASK_COLUMNS}`,
-      )
-      .get(task.name, task.repo, task.brief, task.briefSha, task.started),
-  );
-  if (row === null) return null;
-  const inserted = parseTask(db, row);
-  invariant(inserted.state === "running", "an inserted task is running");
-  return inserted;
+function parseQueued(value: unknown): Queued {
+  const task = parseTask(value);
+  invariant(task.state === "queued", "a queued row is queued");
+  return task;
 }
 
-export function dropTask(store: Store, name: TaskName, ended: string, reason: string): Dropped | null {
+function parseRunning(value: unknown): Running {
+  const task = parseTask(value);
+  invariant(task.state === "running", "a running row is running");
+  return task;
+}
+
+export type NewQueued = Omit<Queued, "state">;
+
+export function insertQueued(store: Store, task: NewQueued): Queued | null {
   const { db } = store;
   const row = translated(store, () =>
     db
       .query<unknown, [string, string, string]>(
-        `UPDATE tasks SET state = 'dropped', ended_at = ?, reason = ?
-         WHERE name = ? AND state = 'running' RETURNING ${TASK_COLUMNS}`,
+        `INSERT INTO tasks (name, state, repo, added_at) VALUES (?, 'queued', ?, ?)
+         ON CONFLICT (name) DO NOTHING RETURNING ${TASK_COLUMNS}`,
       )
-      .get(ended, reason, name),
+      .get(task.name, task.repo, task.added),
   );
-  if (row === null) return null;
-  const dropped = parseTask(db, row);
-  invariant(dropped.state === "dropped", "a dropped task is dropped");
-  return dropped;
+  return row === null ? null : parseQueued(row);
 }
 
-export function finishTask(store: Store, name: TaskName, ended: string, commits: Commits): Done | null {
+export type NewRunning = Omit<Running, "state">;
+
+export function insertRunning(store: Store, task: NewRunning): Running | null {
   const { db } = store;
   const row = translated(store, () =>
     db
-      .transaction(() => {
-        const updated = db
-          .query<unknown, [string, string]>(
-            `UPDATE tasks SET state = 'done', ended_at = ?
-             WHERE name = ? AND state = 'running' RETURNING ${TASK_COLUMNS}`,
-          )
-          .get(ended, name);
-        if (updated === null) return null;
-        const insert = db.query<unknown, [string, string]>(
-          "INSERT INTO task_commits (task, sha) VALUES (?, ?)",
-        );
-        for (const sha of commits) insert.run(name, sha);
-        return updated;
-      })
-      .immediate(),
+      .query<unknown, [string, string, string, string, string, string | null, string]>(
+        `INSERT INTO tasks (name, state, repo, added_at, brief, brief_sha, session, started_at)
+         VALUES (?, 'running', ?, ?, ?, ?, ?, ?) ON CONFLICT (name) DO NOTHING RETURNING ${TASK_COLUMNS}`,
+      )
+      .get(task.name, task.repo, task.added, task.brief, task.briefSha, task.session, task.started),
   );
-  if (row === null) return null;
-  const done = parseTask(db, row);
-  invariant(done.state === "done", "a finished task is done");
-  return done;
+  return row === null ? null : parseRunning(row);
+}
+
+export function startQueued(store: Store, task: Omit<NewRunning, "added">): Running | null {
+  const { db } = store;
+  const row = translated(store, () =>
+    db
+      .query<unknown, [string, string, string, string | null, string, string]>(
+        `UPDATE tasks SET state = 'running', repo = ?, brief = ?, brief_sha = ?, session = ?, started_at = ?
+         WHERE name = ? AND state = 'queued' RETURNING ${TASK_COLUMNS}`,
+      )
+      .get(task.repo, task.brief, task.briefSha, task.session, task.started, task.name),
+  );
+  return row === null ? null : parseRunning(row);
+}
+
+export function stopTask(store: Store, name: TaskName): Queued | null {
+  const { db } = store;
+  const row = translated(store, () =>
+    db
+      .query<unknown, [string]>(
+        `UPDATE tasks SET state = 'queued', brief = NULL, brief_sha = NULL, session = NULL, started_at = NULL
+         WHERE name = ? AND state = 'running' RETURNING ${TASK_COLUMNS}`,
+      )
+      .get(name),
+  );
+  return row === null ? null : parseQueued(row);
+}
+
+export function removeTask(store: Store, name: TaskName): Task | null {
+  const { db } = store;
+  const row = translated(store, () =>
+    db.query<unknown, [string]>(`DELETE FROM tasks WHERE name = ? RETURNING ${TASK_COLUMNS}`).get(name),
+  );
+  return row === null ? null : parseTask(row);
 }
 
 export function taskByName(store: Store, name: TaskName): Task | null {
@@ -312,10 +336,10 @@ export function taskByName(store: Store, name: TaskName): Task | null {
   const row = translated(store, () =>
     db.query<unknown, [string]>(`SELECT ${TASK_COLUMNS} FROM tasks WHERE name = ?`).get(name),
   );
-  return row === null ? null : parseTask(db, row);
+  return row === null ? null : parseTask(row);
 }
 
-export function runningTasks(store: Store): readonly Running[] {
+export function startedTasks(store: Store): readonly Running[] {
   const { db } = store;
   const rows = translated(store, () =>
     db
@@ -324,11 +348,17 @@ export function runningTasks(store: Store): readonly Running[] {
       )
       .all(),
   );
-  return rows.map((row) => {
-    const task = parseTask(db, row);
-    invariant(task.state === "running", "a task listed as running is running");
-    return task;
-  });
+  return rows.map(parseRunning);
+}
+
+export function queuedTasks(store: Store): readonly Queued[] {
+  const { db } = store;
+  const rows = translated(store, () =>
+    db
+      .query<unknown, []>(`SELECT ${TASK_COLUMNS} FROM tasks WHERE state = 'queued' ORDER BY added_at, name`)
+      .all(),
+  );
+  return rows.map(parseQueued);
 }
 
 export function closeStore({ db }: Store): void {

@@ -1,9 +1,20 @@
 import { accessSync, constants, statSync } from "node:fs";
 import { join } from "node:path";
+import { unreachable } from "./assert";
 import { CodedError } from "./coded-error";
-import { mainWorkingTree, type ProcessEnv, requireOrigin } from "./git";
-import { closeStore, type Running, readStore, runningTasks, type Store } from "./store";
-import { actFor, requireRepository, USAGE } from "./tasks";
+import { mainWorkingTree, type ProcessEnv } from "./git";
+import {
+  closeStore,
+  queuedTasks,
+  type Read,
+  type Running,
+  readStore,
+  SCHEMA_VERSION,
+  type Store,
+  startedTasks,
+  type Task,
+} from "./store";
+import { actFor, USAGE } from "./tasks";
 
 export const DOCTOR_USAGE = "agent-task doctor";
 
@@ -86,30 +97,33 @@ function gitHealth(file: string | null, searchPath: readonly string[]): Health {
   };
 }
 
-function storeHealth(path: string, read: Store | null | CodedError): Health {
+function storeHealth(path: string, read: Read | CodedError): Health {
   if (read instanceof CodedError)
     return { name: "store", state: "fail", detail: read.message, fix: read.resolve };
-  const detail =
-    read === null ? `no store at ${path} yet; start creates it` : `${path} is a store this agent-task reads`;
-  return { name: "store", state: "ok", detail, fix: null };
+  switch (read.kind) {
+    case "none":
+      return { name: "store", state: "ok", detail: `no store at ${path} yet; start creates it`, fix: null };
+    case "migratable":
+      return {
+        name: "store",
+        state: "warn",
+        detail: `${path} is a version ${read.found} store; this agent-task reads version ${SCHEMA_VERSION}`,
+        fix: `run ${USAGE.list}, which migrates it, ${RERUN}`,
+      };
+    case "open":
+      return { name: "store", state: "ok", detail: `${path} is a store this agent-task reads`, fix: null };
+    default:
+      return unreachable(read);
+  }
 }
 
-function repositoryHealth(task: Running, processEnv: ProcessEnv, gitFound: boolean): Health {
+function repositoryHealth(task: Task, processEnv: ProcessEnv, gitFound: boolean): Health {
   const name = `${task.name} repository`;
-  const restore = `put the repository back at ${task.repo}, or ${actFor(USAGE.drop, task.name)}`;
-  const missing = refused(() => requireRepository(task), ["repo_missing"]);
-  if (missing instanceof CodedError)
-    return { name, state: "fail", detail: missing.message, fix: missing.resolve };
+  const restore = `put the repository back at ${task.repo}, or ${actFor(USAGE.done, task.name)}`;
+  if (statSync(task.repo, { throwIfNoEntry: false })?.isDirectory() !== true)
+    return { name, state: "fail", detail: `${task.repo} is gone`, fix: restore };
   if (!gitFound)
     return { name, state: "warn", detail: "unchecked: git is not on PATH", fix: `put git on PATH, ${RERUN}` };
-  const origin = refused(() => requireOrigin(task.repo, processEnv), ["no_origin"]);
-  if (origin instanceof CodedError)
-    return {
-      name,
-      state: "fail",
-      detail: `${origin.message}, so done refuses no_origin`,
-      fix: origin.resolve,
-    };
   const tree = refused(() => mainWorkingTree(task.repo, processEnv), ["not_a_checkout"]);
   if (tree instanceof CodedError) return { name, state: "warn", detail: tree.message, fix: restore };
   if (tree !== task.repo)
@@ -119,12 +133,7 @@ function repositoryHealth(task: Running, processEnv: ProcessEnv, gitFound: boole
       detail: `${task.repo} is no longer its own main working tree: git finds ${tree}`,
       fix: restore,
     };
-  return {
-    name,
-    state: "ok",
-    detail: `${task.repo} is its own main working tree, with origin set`,
-    fix: null,
-  };
+  return { name, state: "ok", detail: `${task.repo} is its own main working tree`, fix: null };
 }
 
 function briefHealth(task: Running): Health {
@@ -135,16 +144,17 @@ function briefHealth(task: Running): Health {
     name,
     state: "warn",
     detail: `${task.brief} is not a readable file`,
-    fix: `put the brief back at ${task.brief}, or ${actFor(USAGE.drop, task.name)}`,
+    fix: `put the brief back at ${task.brief}, or ${actFor(USAGE.stop, task.name)}`,
   };
 }
 
 function taskHealth(store: Store, processEnv: ProcessEnv, gitFound: boolean): readonly Health[] {
   try {
-    return runningTasks(store).flatMap((task) => [
+    const started = startedTasks(store);
+    const repositories = [...started, ...queuedTasks(store)].map((task) =>
       repositoryHealth(task, processEnv, gitFound),
-      briefHealth(task),
-    ]);
+    );
+    return [...repositories, ...started.map(briefHealth)];
   } finally {
     closeStore(store);
   }
@@ -157,7 +167,9 @@ export function doctor({ storePath, busyWaitMs, processEnv, searchPath }: Doctor
     storeHealth(storePath, read),
     ...HOOK_PROGRAMS.map(({ program, silence }) => hookProgramHealth(program, silence, searchPath)),
     gitHealth(git, searchPath),
-    ...(read instanceof CodedError || read === null ? [] : taskHealth(read, processEnv, git !== null)),
+    ...(read instanceof CodedError || read.kind !== "open"
+      ? []
+      : taskHealth(read.store, processEnv, git !== null)),
   ];
   return { checks, failing: checks.filter(({ state }) => state === "fail").length };
 }

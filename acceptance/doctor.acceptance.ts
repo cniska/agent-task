@@ -41,7 +41,7 @@ function started(w: World, name: string, dir: string, file: string): void {
   expect(run(w, w.root, ["start", name, "--repo", dir, "--brief", file]).exitCode).toBe(0);
 }
 
-test("AC-21 doctor passes with no store and makes none, and fails a store of another version, leaving it", () => {
+test("AC-20 doctor passes with no store and makes none, warns a version-1 store naming list, and fails one it cannot read, leaving each", () => {
   const w = world();
   const bin = binWith(w, PROGRAMS, true);
   const fresh = doctor(w, bin, 0);
@@ -60,22 +60,35 @@ test("AC-21 doctor passes with no store and makes none, and fails a store of ano
   const dir = join(w.root, "data", "agent-task");
   mkdirSync(dir);
   const path = join(dir, "tasks.db");
-  const db = new Database(path);
-  db.run("PRAGMA user_version = 2");
-  db.close();
-  const before = readFileSync(path);
+  const versioned = (version: number) => {
+    const db = new Database(path);
+    db.run(`PRAGMA user_version = ${version}`);
+    db.close();
+    return readFileSync(path);
+  };
+  const old = versioned(1);
+  const migratable = doctor(w, bin, 0);
+  expect(migratable.failing).toBe(0);
+  expect(check(migratable, "store")).toEqual({
+    name: "store",
+    state: "warn",
+    detail: `${path} is a version 1 store; this agent-task reads version 2`,
+    fix: "run agent-task list, which migrates it, then run agent-task doctor again",
+  });
+  expect(readFileSync(path).equals(old)).toBe(true);
+  const newer = versioned(3);
   const other = doctor(w, bin, 1);
   expect(other.failing).toBe(1);
   expect(check(other, "store")).toEqual({
     name: "store",
     state: "fail",
-    detail: `${path} holds store version 2, and this agent-task reads version 1`,
+    detail: `${path} holds store version 3, and this agent-task reads version 2`,
     fix: "stop and hand this error to the owner: run the agent-task that wrote this store",
   });
-  expect(readFileSync(path).equals(before)).toBe(true);
+  expect(readFileSync(path).equals(newer)).toBe(true);
 });
 
-test("AC-22 doctor without git on PATH fails git and leaves each task's repository unchecked", () => {
+test("AC-21 doctor without git on PATH fails git and leaves each task's repository unchecked", () => {
   const w = world();
   const dir = repo(w);
   started(w, "task-a", dir, brief(w.root));
@@ -86,7 +99,7 @@ test("AC-22 doctor without git on PATH fails git and leaves each task's reposito
   expect(printed.failing).toBe(1);
 });
 
-test("AC-23 doctor judges each running task's repository and brief without contacting a remote", () => {
+test("AC-22 doctor judges each task's repository, and each running task's brief, without contacting a remote", () => {
   const w = world();
   const briefs = join(w.root, "briefs");
   mkdirSync(briefs);
@@ -112,17 +125,22 @@ test("AC-23 doctor judges each running task's repository and brief without conta
   const gone = brief(briefs, "e.md");
   started(w, "task-e", kept, gone);
   rmSync(gone);
+  const stopped = repo(w, "stopped");
+  started(w, "task-f", stopped, brief(briefs, "f.md"));
+  expect(run(w, w.root, ["stop", "task-f"]).exitCode).toBe(0);
+  rmSync(stopped, { recursive: true });
   const printed = doctor(w, binWith(w, PROGRAMS, true), 1);
   expect(printed.checks.map(({ name }) => name).slice(6)).toEqual([
     "task-a repository",
-    "task-a brief",
     "task-b repository",
-    "task-b brief",
     "task-c repository",
-    "task-c brief",
     "task-d repository",
-    "task-d brief",
     "task-e repository",
+    "task-f repository",
+    "task-a brief",
+    "task-b brief",
+    "task-c brief",
+    "task-d brief",
     "task-e brief",
   ]);
   expect(check(printed, "task-a repository")).toMatchObject({ state: "ok", fix: null });
@@ -132,19 +150,17 @@ test("AC-23 doctor judges each running task's repository and brief without conta
     detail: `${readable} is readable`,
     fix: null,
   });
-  expect(check(printed, "task-b repository")).toMatchObject({
-    state: "fail",
-    fix: `add the remote the work lands on as origin in ${join(w.root, "no-origin")}, then run the command again`,
-  });
-  for (const [name, state] of [
-    ["task-c repository", "fail"],
-    ["task-d repository", "warn"],
-    ["task-e brief", "warn"],
+  expect(check(printed, "task-b repository")).toMatchObject({ state: "ok", fix: null });
+  for (const [name, state, act] of [
+    ["task-c repository", "fail", "done"],
+    ["task-d repository", "warn", "done"],
+    ["task-e brief", "warn", "stop"],
+    ["task-f repository", "fail", "done"],
   ] as const) {
     const one = check(printed, name);
     const task = name.split(" ")[0];
     expect([name, one.state]).toEqual([name, state]);
-    expect(one.fix).toContain(`agent-task drop ${task} --reason`);
+    expect(one.fix).toContain(`agent-task ${act} ${task}`);
   }
   expect(check(printed, "task-d repository").detail).toContain(outer);
   expect(check(printed, "task-e repository").state).toBe("ok");

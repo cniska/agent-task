@@ -1,9 +1,10 @@
+import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { doctor } from "./doctor";
 import { brief, git, named, removeScratchDirs, repo, scratchDir } from "./repo.test-support";
-import { closeStore, insertTask, openStore } from "./store";
+import { closeStore, insertQueued, insertRunning, openStore } from "./store";
 
 afterAll(removeScratchDirs);
 
@@ -21,16 +22,19 @@ function checkOf(storePath: string, searchPath: readonly string[], name: string)
   return found;
 }
 
-function storeWith(dir: string, briefPath: string): string {
+function storeWith(dir: string, briefPath: string | null): string {
   const path = join(scratchDir(), "tasks.db");
   const store = openStore(path, 0);
-  insertTask(store, {
-    name: named("task-a"),
-    repo: dir,
-    brief: briefPath,
-    briefSha: "abc",
-    started: "2026-10-16T10:00:00.000Z",
-  });
+  const queued = { name: named("task-a"), repo: dir, added: "2026-10-16T10:00:00.000Z" };
+  if (briefPath === null) insertQueued(store, queued);
+  else
+    insertRunning(store, {
+      ...queued,
+      brief: briefPath,
+      briefSha: "abc",
+      session: null,
+      started: "2026-10-16T10:00:00.000Z",
+    });
   closeStore(store);
   return path;
 }
@@ -71,34 +75,57 @@ describe("doctor", () => {
     expect(store.fix).toBe(`stop and hand this error to the owner: ${directory} must be an agent-task store`);
   });
 
-  test("fails a repository inside a checkout with no origin, as done would refuse it", () => {
-    const outer = repo();
-    const inner = join(outer, "inner");
-    mkdirSync(inner);
-    const store = storeWith(inner, brief(scratchDir()));
-    expect(checkOf(store, [GIT_DIR], "task-a repository")).toMatchObject({
-      state: "fail",
-      fix: `add the remote the work lands on as origin in ${inner}, then run the command again`,
+  test("warns a version-1 store without changing it, naming list as the migration", () => {
+    const path = join(scratchDir(), "tasks.db");
+    const db = new Database(path);
+    db.run("PRAGMA user_version = 1");
+    db.close();
+    const bytes = readFileSync(path);
+    expect(checkOf(path, [GIT_DIR], "store")).toEqual({
+      name: "store",
+      state: "warn",
+      detail: `${path} is a version 1 store; this agent-task reads version 2`,
+      fix: "run agent-task list, which migrates it, then run agent-task doctor again",
     });
-    git(outer, ["remote", "add", "origin", join(scratchDir(), "nowhere.git")]);
-    expect(checkOf(store, [GIT_DIR], "task-a repository")).toMatchObject({ state: "warn" });
+    expect(readFileSync(path).equals(bytes)).toBe(true);
   });
 
-  test("warns a repository with an origin that is no checkout git can confirm, naming drop", () => {
+  test("passes a repository that is its own main working tree, origin or not, and warns one that is no checkout, naming done", () => {
+    const dir = repo();
+    const store = storeWith(dir, brief(scratchDir()));
+    expect(checkOf(store, [GIT_DIR], "task-a repository")).toEqual({
+      name: "task-a repository",
+      state: "ok",
+      detail: `${dir} is its own main working tree`,
+      fix: null,
+    });
     const bare = join(scratchDir(), "bare.git");
     git(scratchDir(), ["init", "-q", "--bare", bare]);
-    git(bare, ["remote", "add", "origin", join(scratchDir(), "nowhere.git")]);
-    const store = storeWith(bare, brief(scratchDir()));
-    const check = checkOf(store, [GIT_DIR], "task-a repository");
+    const check = checkOf(storeWith(bare, brief(scratchDir())), [GIT_DIR], "task-a repository");
     expect(check.state).toBe("warn");
     expect(check.detail).toContain(bare);
-    expect(check.fix).toBe(`put the repository back at ${bare}, or agent-task drop task-a --reason <text>`);
+    expect(check.fix).toBe(`put the repository back at ${bare}, or agent-task done task-a`);
   });
 
-  test("fails a plain directory, which has no origin", () => {
+  test("checks a queued task's repository and no brief, and a running task's brief, naming stop", () => {
     const dir = scratchDir();
-    const store = storeWith(dir, brief(dir));
-    expect(checkOf(store, [GIT_DIR], "task-a repository").state).toBe("fail");
+    const queued = report(storeWith(dir, null), [GIT_DIR]).checks;
+    expect(queued.find(({ name }) => name === "task-a repository")?.state).toBe("warn");
+    expect(queued.find(({ name }) => name === "task-a brief")).toBeUndefined();
+    const running = checkOf(storeWith(repo(), join(dir, "missing.md")), [GIT_DIR], "task-a brief");
+    expect(running).toMatchObject({
+      state: "warn",
+      fix: `put the brief back at ${join(dir, "missing.md")}, or agent-task stop task-a`,
+    });
+  });
+
+  test("fails a repository that is gone, naming done", () => {
+    const dir = join(scratchDir(), "gone");
+    const check = checkOf(storeWith(dir, brief(scratchDir())), [GIT_DIR], "task-a repository");
+    expect(check).toMatchObject({
+      state: "fail",
+      fix: `put the repository back at ${dir}, or agent-task done task-a`,
+    });
   });
 
   test("names hook files that the plugin ships", () => {

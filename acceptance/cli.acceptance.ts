@@ -4,7 +4,7 @@ import { removeScratch, run, world } from "./harness";
 
 afterEach(removeScratch);
 
-test("AC-13 --version prints the version alone, and refuses an argument as a usage error", () => {
+test("AC-12 --version prints the version alone, and refuses an argument as a usage error", () => {
   const w = world();
   expect(run(w, w.root, ["--version"])).toEqual({ exitCode: 0, stdout: `${version}\n`, stderr: "" });
   const extra = run(w, w.root, ["--version", "now"]);
@@ -16,7 +16,7 @@ test("AC-13 --version prints the version alone, and refuses an argument as a usa
   });
 });
 
-test("AC-14 no command and --help list the commands and the version flag as one JSON line", () => {
+test("AC-13 no command and --help list the commands and the version flag as one JSON line", () => {
   const w = world();
   const bare = run(w, w.root, []);
   expect([bare.exitCode, bare.stderr]).toEqual([0, ""]);
@@ -25,8 +25,8 @@ test("AC-14 no command and --help list the commands and the version flag as one 
   expect(listed.result.commands.map(({ name }: { name: string }) => name)).toEqual([
     "start",
     "list",
+    "stop",
     "done",
-    "drop",
     "doctor",
   ]);
   expect(listed.result.flags).toEqual([
@@ -35,7 +35,7 @@ test("AC-14 no command and --help list the commands and the version flag as one 
   expect(run(w, w.root, ["--help"]).stdout).toBe(bare.stdout);
 });
 
-test("AC-15 an unknown command and a misused one are usage errors on stderr, exit 2, and a refusal exits 1", () => {
+test("AC-14 an unknown command and a misused one are usage errors on stderr, exit 2, and a refusal exits 1", () => {
   const w = world();
   const unknown = run(w, w.root, ["frobnicate"]);
   expect([unknown.exitCode, unknown.stdout]).toEqual([2, ""]);
@@ -52,13 +52,13 @@ test("AC-15 an unknown command and a misused one are usage errors on stderr, exi
     error: {
       kind: "usage",
       code: "bad_arguments",
-      resolve: "agent-task start <name> --repo <path> --brief <file>",
+      resolve: "agent-task start <name> --repo <path> --brief <file> [--session <id>]",
     },
   });
-  const refused = run(w, w.root, ["drop", "nobody", "--reason", "gone"]);
+  const refused = run(w, w.root, ["stop", "nobody"]);
   expect([refused.exitCode, refused.stdout]).toEqual([1, ""]);
   expect(JSON.parse(refused.stderr)).toMatchObject({
-    command: "drop",
+    command: "stop",
     ok: false,
     error: { kind: "refusal", code: "unknown_task" },
   });

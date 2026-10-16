@@ -1,8 +1,8 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { blobSha, commitOf, isAncestor, isSha, landingBranch, mainWorkingTree } from "./git";
-import { commit, git, removeScratchDirs, repo, scratchDir, sha, withOrigin } from "./repo.test-support";
+import { blobSha, mainWorkingTree } from "./git";
+import { git, removeScratchDirs, repo, scratchDir } from "./repo.test-support";
 
 afterAll(removeScratchDirs);
 
@@ -51,64 +51,5 @@ describe("a blob sha", () => {
     chmodSync(unreadable, 0o000);
     for (const path of [join(dir, "missing", "brief.md"), dir, unreadable])
       expect(blobSha(path, processEnv)).toBeNull();
-  });
-});
-
-describe("landing", () => {
-  test("names origin's default branch and judges reachability from it after a fetch", () => {
-    const main = repo();
-    const origin = withOrigin(main);
-    const landed = git(main, ["rev-parse", "HEAD"]);
-    const other = join(scratchDir(), "other");
-    git(scratchDir(), ["clone", "-q", origin, other]);
-    const pushedElsewhere = commit(other, "elsewhere");
-    git(other, ["push", "-q", "origin", "main"]);
-    git(main, ["checkout", "-q", "-b", "topic"]);
-    const unpushed = commit(main, "topic");
-    const landing = landingBranch(main, processEnv);
-    expect(landing).toEqual({ ref: "refs/remotes/origin/main", branch: "origin/main" });
-    const reachable = (sha: string) => isAncestor(main, sha, landing.ref, processEnv);
-    expect([reachable(landed), reachable(pushedElsewhere), reachable(unpushed)]).toEqual([true, true, false]);
-  });
-
-  test("reads origin's default branch from origin, whatever it is named", () => {
-    const main = repo();
-    const origin = withOrigin(main);
-    git(main, ["push", "-q", "origin", "main:trunk"]);
-    git(origin, ["symbolic-ref", "HEAD", "refs/heads/trunk"]);
-    expect(landingBranch(main, processEnv).branch).toBe("origin/trunk");
-  });
-
-  test("refuses a repository with no origin, an origin that cannot be reached, and one whose HEAD is no branch", () => {
-    const none = repo();
-    expect(() => landingBranch(none, processEnv)).toThrow(expect.objectContaining({ code: "no_origin" }));
-    const gone = repo();
-    git(gone, ["remote", "add", "origin", join(scratchDir(), "missing.git")]);
-    expect(() => landingBranch(gone, processEnv)).toThrow(
-      expect.objectContaining({ code: "remote_unreachable" }),
-    );
-    const headless = repo();
-    const origin = withOrigin(headless);
-    git(origin, ["symbolic-ref", "HEAD", "refs/heads/nothing"]);
-    expect(() => landingBranch(headless, processEnv)).toThrow(
-      expect.objectContaining({ code: "no_default_branch" }),
-    );
-  });
-
-  test("takes as a sha only 4 to 40 lowercase hex digits", () => {
-    for (const value of ["abcd", "0".repeat(40), "0123456789abcdef"]) expect(isSha(value)).toBe(true);
-    for (const value of ["abc", "0".repeat(41), "ABCD", "HEAD", "origin/main", "main", "HEAD~3", "--all", ""])
-      expect(isSha(value)).toBe(false);
-  });
-
-  test("resolves a sha to its full commit, and an unknown one or a hex-named ref to null", () => {
-    const main = repo();
-    const head = git(main, ["rev-parse", "HEAD"]);
-    expect(commitOf(main, sha(head.slice(0, 10)), processEnv)).toBe(head);
-    expect(commitOf(main, sha("0".repeat(40)), processEnv)).toBeNull();
-    const tip = commit(main, "second");
-    const hexRef = tip.startsWith("abcd") ? "dcba" : "abcd";
-    git(main, ["branch", hexRef, tip]);
-    expect(commitOf(main, sha(hexRef), processEnv)).toBeNull();
   });
 });

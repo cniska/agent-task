@@ -85,7 +85,7 @@ function context(ran: Ran): string {
 
 const SILENT = { exitCode: 0, stdout: "", stderr: "" };
 
-test("AC-18 the edit hook denies an edit to a running task's brief through each tool, naming drop, the edit and start under a new name, and passes another file", () => {
+test("AC-17 the edit hook denies an edit to a running task's brief through each tool, naming stop, the edit and start again, and passes another file", () => {
   const w = world();
   const bin = binWith(w, ON_PATH, true);
   const dir = repo(w);
@@ -101,26 +101,26 @@ test("AC-18 the edit hook denies an edit to a running task's brief through each 
   ] as const) {
     const reason = denial(edit(w, bin, dir, tool, path));
     expect(reason).toContain(`${file} is the brief of the running task task-a`);
-    expect(reason).toContain("agent-task drop task-a --reason");
-    expect(reason).toContain(`agent-task start <new-name> --repo ${dir} --brief ${file}`);
-    expect(reason.indexOf("agent-task drop")).toBeLessThan(reason.indexOf("then edit"));
+    expect(reason).toContain("agent-task stop task-a;");
+    expect(reason).toContain(`agent-task start task-a --repo ${dir} --brief ${file} [--session <id>]`);
+    expect(reason.indexOf("agent-task stop")).toBeLessThan(reason.indexOf("then edit"));
     expect(reason.indexOf("then edit")).toBeLessThan(reason.indexOf("agent-task start"));
   }
   expect(edit(w, bin, dir, "Edit", other)).toEqual(SILENT);
   expect(edit(w, bin, dir, "Write", join(dir, "new.md"))).toEqual(SILENT);
   rmSync(file);
-  expect(denial(edit(w, bin, dir, "Write", file))).toContain("agent-task drop task-a --reason");
+  expect(denial(edit(w, bin, dir, "Write", file))).toContain("agent-task stop task-a;");
   const nested = join(dir, "briefs", "deep");
   mkdirSync(nested, { recursive: true });
   const buried = brief(nested, "buried.md");
   result(run(w, w.root, ["start", "task-b", "--repo", dir, "--brief", buried]));
   rmSync(join(dir, "briefs"), { recursive: true });
-  expect(denial(edit(w, bin, dir, "Write", buried))).toContain("agent-task drop task-b --reason");
+  expect(denial(edit(w, bin, dir, "Write", buried))).toContain("agent-task stop task-b;");
   const noCwd = { hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: "brief.md" } };
   expect(hook(w, bin, "PreToolUse", dir, noCwd)).toEqual(SILENT);
 });
 
-test("AC-19 the session hook puts the running tasks in context where the working directory holds a running brief, and prints nothing elsewhere", () => {
+test("AC-18 the session hook puts the running tasks in context where the working directory holds a running brief, and prints nothing elsewhere", () => {
   const w = world();
   const bin = binWith(w, ON_PATH, true);
   const dir = repo(w);
@@ -137,7 +137,7 @@ test("AC-19 the session hook puts the running tasks in context where the working
     ["gone", ended],
   ] as const)
     result(run(w, w.root, ["start", name, "--repo", dir, "--brief", file]));
-  result(run(w, w.root, ["drop", "gone", "--reason", "given up"]));
+  result(run(w, w.root, ["done", "gone"]));
   writeFileSync(amended, "# Brief\n\nA fix.\n");
   expect(hookOf("SessionStart").matcher?.split("|").sort()).toEqual([
     "clear",
@@ -155,7 +155,7 @@ test("AC-19 the session hook puts the running tasks in context where the working
         { name: "task-b", brief: kept, briefChanged: false },
       ],
     });
-    expect(closing).toContain("the plugin denies an edit to one, naming agent-task drop");
+    expect(closing).toContain("the plugin denies an edit to one, naming agent-task stop");
   }
   const empty = join(dir, "empty");
   mkdirSync(empty);
@@ -163,14 +163,14 @@ test("AC-19 the session hook puts the running tasks in context where the working
   expect(sessionStart(w, bin, join(dir, "missing"), dir)).toEqual(SILENT);
 });
 
-test("AC-20 both hooks print nothing and exit 0 over a store of another schema version, with no agent-task on PATH, and with only a note on stderr without jq or realpath", () => {
+test("AC-19 both hooks print nothing and exit 0 over a store of a schema version agent-task cannot read, with no agent-task on PATH, and with only a note on stderr without jq or realpath", () => {
   const w = world();
   const dir = repo(w);
   const file = brief(dir, "brief.md");
   const withCli = binWith(w, ON_PATH, true);
   result(run(w, w.root, ["start", "task-a", "--repo", dir, "--brief", file]));
   const db = new Database(join(w.root, "data", "agent-task", "tasks.db"));
-  db.run("PRAGMA user_version = 2");
+  db.run("PRAGMA user_version = 3");
   db.close();
   expect(edit(w, withCli, dir, "Edit", file)).toEqual(SILENT);
   expect(sessionStart(w, withCli, dir)).toEqual(SILENT);

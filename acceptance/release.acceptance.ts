@@ -73,16 +73,16 @@ function managesATask(w: World, path: string): void {
     ok: true,
     result: { tasks: [{ name: "task-a", briefChanged: false }] },
   });
-  expect(agentTask(["drop", "task-a", "--reason", "made-up reason"])).toMatchObject({
-    command: "drop",
+  expect(agentTask(["done", "task-a"])).toMatchObject({
+    command: "done",
     ok: true,
-    result: { name: "task-a", state: "dropped" },
+    result: { name: "task-a", state: "running" },
   });
   expect(agentTask(["doctor"])).toMatchObject({ command: "doctor", ok: true, result: { failing: 0 } });
 }
 
 test(
-  "AC-24 the release binary, alone on PATH with git, prints its version and runs start, list, drop and doctor",
+  "AC-23 the release binary, alone on PATH with git, prints its version and runs start, list, done and doctor",
   () => {
     const w = world();
     const binary = compiledBinary(w, join(w.root, "build"));
@@ -99,7 +99,7 @@ test(
 );
 
 test(
-  "AC-25 install.sh installs the latest release after checking its checksum, and installs nothing from a bad download",
+  "AC-24 install.sh installs the latest release after checking its checksum, and installs nothing from a bad download",
   () => {
     const w = world();
     const assets = releaseAssets(w, join(w.root, "assets"), compiledBinary(w, join(w.root, "build")), TARGET);
@@ -149,7 +149,7 @@ test(
 );
 
 test(
-  "AC-26 the npm package runs its platform's binary with no runtime on PATH, and refuses on another platform and when the platform package is missing or cannot start",
+  "AC-25 the npm package runs its platform's binary with no runtime on PATH, and refuses on another platform and when the platform package is missing or cannot start",
   () => {
     const w = world();
     const assets = releaseAssets(w, join(w.root, "assets"), compiledBinary(w, join(w.root, "build")), TARGET);

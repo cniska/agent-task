@@ -5,7 +5,7 @@ import { messageOf } from "./coded-error";
 import { DOCTOR_USAGE, doctor } from "./doctor";
 import { storePath } from "./paths";
 import { closeStore, openStore } from "./store";
-import { type Context, done, drop, list, start, USAGE } from "./tasks";
+import { type Context, done, list, start, stop, USAGE } from "./tasks";
 
 type Flags = Readonly<Record<string, { readonly type: "string"; readonly multiple?: boolean }>>;
 
@@ -55,17 +55,12 @@ function oneValue(command: Command, values: Parsed["values"], flag: string): str
   return value;
 }
 
-function manyValues(
-  command: Command,
-  values: Parsed["values"],
-  flag: string,
-): readonly [string, ...string[]] {
+function optionalValue(command: Command, values: Parsed["values"], flag: string): string | null {
   const value = values[flag];
-  const all = typeof value === "string" ? [value] : (value ?? []);
-  const [first, ...rest] = all;
-  if (first === undefined || all.some((one) => one.trim() === ""))
-    refuseArguments(command, `needs --${flag} with a value, once or more`);
-  return [first, ...rest];
+  if (value === undefined) return null;
+  if (typeof value !== "string" || value.trim() === "")
+    refuseArguments(command, `needs a value after --${flag}`);
+  return value;
 }
 
 function withContext(runtime: Runtime, act: (context: Context) => unknown): Outcome {
@@ -80,50 +75,48 @@ function withContext(runtime: Runtime, act: (context: Context) => unknown): Outc
 const startCommand: Command = {
   name: "start",
   usage: USAGE.start,
-  summary: "record a running task: its repository, its brief and the brief's content",
+  summary: "run a task, new or queued: its repository, its brief, the brief's content and the session",
   run(args, runtime) {
     const { positionals, values } = parsed(this, args, {
       repo: { type: "string" },
       brief: { type: "string" },
+      session: { type: "string" },
     });
     const name = oneName(this, positionals);
     const repo = resolve(runtime.cwd, oneValue(this, values, "repo"));
     const brief = resolve(runtime.cwd, oneValue(this, values, "brief"));
-    return withContext(runtime, (context) => start(context, { name, repo, brief }));
+    const session = optionalValue(this, values, "session");
+    return withContext(runtime, (context) => start(context, { name, repo, brief, session }));
   },
 };
 
 const listCommand: Command = {
   name: "list",
   usage: USAGE.list,
-  summary: "list the running tasks, flagging each whose brief changed since it started",
+  summary: "list the running tasks, flagging each whose brief changed since it started, and the queue",
   run(args, runtime) {
     noArguments(this, parsed(this, args, {}).positionals);
-    return withContext(runtime, (context) => ({ tasks: list(context) }));
+    return withContext(runtime, (context) => list(context));
+  },
+};
+
+const stopCommand: Command = {
+  name: "stop",
+  usage: USAGE.stop,
+  summary: "take a running task back to queued, freeing its brief",
+  run(args, runtime) {
+    const name = oneName(this, parsed(this, args, {}).positionals);
+    return withContext(runtime, (context) => stop(context, name));
   },
 };
 
 const doneCommand: Command = {
   name: "done",
   usage: USAGE.done,
-  summary: "close a running task once each of its commits is on origin's default branch",
+  summary: "remove a task, however its work ended",
   run(args, runtime) {
-    const { positionals, values } = parsed(this, args, { commit: { type: "string", multiple: true } });
-    const name = oneName(this, positionals);
-    const commits = manyValues(this, values, "commit");
-    return withContext(runtime, (context) => done(context, name, commits));
-  },
-};
-
-const dropCommand: Command = {
-  name: "drop",
-  usage: USAGE.drop,
-  summary: "close a running task whose work was given up",
-  run(args, runtime) {
-    const { positionals, values } = parsed(this, args, { reason: { type: "string" } });
-    const name = oneName(this, positionals);
-    const reason = oneValue(this, values, "reason");
-    return withContext(runtime, (context) => drop(context, name, reason));
+    const name = oneName(this, parsed(this, args, {}).positionals);
+    return withContext(runtime, (context) => done(context, name));
   },
 };
 
@@ -146,7 +139,7 @@ const doctorCommand: Command = {
 export const COMMANDS: readonly Command[] = [
   startCommand,
   listCommand,
+  stopCommand,
   doneCommand,
-  dropCommand,
   doctorCommand,
 ];

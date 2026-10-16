@@ -31,8 +31,8 @@ describe("the cli", () => {
     expect(listed.result.commands.map(({ name }: { name: string }) => name)).toEqual([
       "start",
       "list",
+      "stop",
       "done",
-      "drop",
       "doctor",
     ]);
   });
@@ -40,7 +40,7 @@ describe("the cli", () => {
   test("prints a result as one JSON line naming the command, exit 0", () => {
     expect(cli("list")).toEqual({
       status: 0,
-      stdout: '{"command":"list","ok":true,"result":{"tasks":[]}}\n',
+      stdout: '{"command":"list","ok":true,"result":{"tasks":[],"ready":[]}}\n',
       stderr: "",
     });
   });
@@ -53,12 +53,12 @@ describe("the cli", () => {
   });
 
   test("exits 1 with one JSON line on stderr for a refusal", () => {
-    const run = cli("drop", "no-such-task", "--reason", "gone");
+    const run = cli("stop", "no-such-task");
     expect([run.status, run.stdout]).toEqual([1, ""]);
     expect(JSON.parse(run.stderr)).toMatchObject({
-      command: "drop",
+      command: "stop",
       ok: false,
-      error: { kind: "refusal", code: "unknown_task", meta: { name: "no-such-task", act: "drop" } },
+      error: { kind: "refusal", code: "unknown_task", meta: { name: "no-such-task", act: "stop" } },
     });
   });
 
@@ -72,8 +72,8 @@ describe("the cli", () => {
         kind: "usage",
         code: "unknown_command",
         message: "frobnicate is not an agent-task command; agent-task with no command lists them",
-        meta: { name: "frobnicate", usage: "agent-task start|list|done|drop|doctor|--version" },
-        resolve: "agent-task start|list|done|drop|doctor|--version",
+        meta: { name: "frobnicate", usage: "agent-task start|list|stop|done|doctor|--version" },
+        resolve: "agent-task start|list|stop|done|doctor|--version",
       },
     });
   });
@@ -84,10 +84,11 @@ describe("the cli", () => {
       ["start", "a", "b", "--repo", ".", "--brief", "x"],
       ["list", "extra"],
       ["doctor", "extra"],
-      ["done", "a"],
-      ["done", "a", "--commit", ""],
-      ["drop", "a", "--reason", " "],
-      ["drop", "a", "--force"],
+      ["start", "a", "--repo", ".", "--brief", "x", "--session", " "],
+      ["stop"],
+      ["stop", "a", "--force"],
+      ["done", "a", "b"],
+      ["done", "a", "--commit", "abc"],
     ]) {
       const run = cli(...args);
       expect([args, run.status, JSON.parse(run.stderr).error.code]).toEqual([args, 2, "bad_arguments"]);

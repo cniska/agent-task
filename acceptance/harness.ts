@@ -127,10 +127,12 @@ export function result(ran: Ran): Shown {
   return printed.result;
 }
 
-export function listedTasks(ran: Ran): readonly Shown[] {
+export type Listing = { readonly tasks: readonly Shown[]; readonly ready: readonly Shown[] };
+
+export function listing(ran: Ran): Listing {
   expectExit(ran, 0);
-  const printed: { readonly result: { readonly tasks: readonly Shown[] } } = JSON.parse(ran.stdout);
-  return printed.result.tasks;
+  const printed: { readonly result: Listing } = JSON.parse(ran.stdout);
+  return printed.result;
 }
 
 export function refusal(ran: Ran): {
@@ -151,7 +153,7 @@ export function git(w: World, cwd: string, args: readonly string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: "pipe", env: w.env }).trim();
 }
 
-export function commit(w: World, repo: string, file: string): string {
+function commit(w: World, repo: string, file: string): string {
   writeFileSync(join(repo, file), `${file}\n`);
   git(w, repo, ["add", file]);
   git(w, repo, ["commit", "-q", "-m", file]);
@@ -164,14 +166,6 @@ export function repo(w: World, name = "repo"): string {
   git(w, dir, ["init", "-q", "-b", "main"]);
   commit(w, dir, "first");
   return dir;
-}
-
-export function origin(w: World, dir: string, name = "origin.git"): string {
-  const bare = join(w.root, name);
-  git(w, w.root, ["init", "-q", "--bare", "-b", "main", bare]);
-  git(w, dir, ["remote", "add", "origin", bare]);
-  git(w, dir, ["push", "-q", "origin", "main"]);
-  return bare;
 }
 
 export function brief(dir: string, name = "brief.md", text = "# Brief\n"): string {

@@ -20,7 +20,7 @@ main() {
   printf '# Made-up brief\n' > brief.md
   "$executable" start smoke-task --repo . --brief brief.md | grep -q '"ok":true'
   "$executable" list | grep -q '"name":"smoke-task"'
-  "$executable" drop smoke-task --reason "made-up reason" | grep -q '"ok":true'
+  "$executable" done smoke-task | grep -q '"ok":true'
   "$executable" doctor | grep -q '"failing":0'
 }
 

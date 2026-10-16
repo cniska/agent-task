@@ -5,7 +5,7 @@ source "${BASH_SOURCE[0]%/*}/tasks.sh"
 
 readonly UNREAD="the session was not told which tasks are running"
 readonly HEADING="cniska-task: the running tasks, as agent-task list prints them:"
-readonly CLOSING="A running task's brief does not change under it: the plugin denies an edit to one, naming agent-task drop, the edit and agent-task start under a new name."
+readonly CLOSING="A running task's brief does not change under it: the plugin denies an edit to one, naming agent-task stop, the edit and agent-task start again."
 
 working_directory() {
   jq -r '.cwd // ""' 2>/dev/null

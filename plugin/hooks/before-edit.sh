@@ -24,10 +24,10 @@ denial() {
           permissionDecision: "deny",
           permissionDecisionReason: (
             "\($brief) is the brief of the running task \($holding | map(.name) | join(" and ")), and a running task'"'"'s brief does not change under it. To change it, in this order: "
-            + ($holding | map("agent-task drop \(.name) --reason <why the work is given up>") | join("; "))
+            + ($holding | map("agent-task stop \(.name)") | join("; "))
             + "; then edit the brief; then "
-            + ($holding | map("agent-task start <new-name> --repo \(.repo) --brief \(.brief)") | join("; "))
-            + ", under a name the store has never held, since a dropped name stays taken."
+            + ($holding | map("agent-task start \(.name) --repo \(.repo) --brief \(.brief) [--session <id>]") | join("; "))
+            + ", which freezes the edited brief."
           )
         }
       }' 2>/dev/null

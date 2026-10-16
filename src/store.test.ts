@@ -3,22 +3,63 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { named, removeScratchDirs, scratchDir } from "./repo.test-support";
-import { closeStore, dropTask, finishTask, insertTask, openStore, runningTasks, taskByName } from "./store";
+import {
+  closeStore,
+  insertQueued,
+  insertRunning,
+  openStore,
+  queuedTasks,
+  readStore,
+  removeTask,
+  startedTasks,
+  stopTask,
+  taskByName,
+} from "./store";
 
 afterAll(removeScratchDirs);
 
 const WAIT = 0;
 
-const TASK = {
-  name: named("a"),
-  repo: "/r",
+const QUEUED = { name: named("a"), repo: "/r", added: "2026-10-16T09:00:00.000Z" };
+
+const STARTED = {
   brief: "/r/brief.md",
   briefSha: "abc",
+  session: "s1",
   started: "2026-10-16T10:00:00.000Z",
 };
 
+const RUNNING = { ...QUEUED, ...STARTED };
+
 function freshStore() {
   return openStore(join(scratchDir(), "nested", "tasks.db"), WAIT);
+}
+
+const VERSION_ONE = `
+CREATE TABLE tasks (
+  name TEXT PRIMARY KEY,
+  repo TEXT NOT NULL,
+  brief TEXT NOT NULL,
+  brief_sha TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('running', 'done', 'dropped')),
+  ended_at TEXT,
+  reason TEXT
+) STRICT;
+CREATE TABLE task_commits (task TEXT NOT NULL REFERENCES tasks (name), sha TEXT NOT NULL, PRIMARY KEY (task, sha)) STRICT;
+INSERT INTO tasks VALUES ('old-running', '/r', '/r/old.md', 'sha1', '2026-10-15T08:00:00.000Z', 'running', NULL, NULL);
+INSERT INTO tasks VALUES ('old-done', '/r', '/r/done.md', 'sha2', '2026-10-15T07:00:00.000Z', 'done', '2026-10-15T09:00:00.000Z', NULL);
+INSERT INTO tasks VALUES ('old-dropped', '/r', '/r/dropped.md', 'sha3', '2026-10-15T06:00:00.000Z', 'dropped', '2026-10-15T09:00:00.000Z', 'given up');
+INSERT INTO task_commits VALUES ('old-done', 'c1');
+PRAGMA user_version = 1;
+`;
+
+function versionOneStore(): string {
+  const path = join(scratchDir(), "tasks.db");
+  const db = new Database(path);
+  db.run(VERSION_ONE);
+  db.close();
+  return path;
 }
 
 describe("the store", () => {
@@ -26,79 +67,123 @@ describe("the store", () => {
     const path = join(scratchDir(), "nested", "tasks.db");
     closeStore(openStore(path, WAIT));
     const store = openStore(path, WAIT);
-    expect(runningTasks(store)).toEqual([]);
+    expect(startedTasks(store)).toEqual([]);
     closeStore(store);
   });
 
-  test("inserts a running task, returning it, and returns null for a name it holds", () => {
+  test("inserts a running or a queued task, returning it, and returns null for a name it holds", () => {
     const store = freshStore();
-    expect(insertTask(store, TASK)).toEqual({ ...TASK, state: "running" });
-    expect(insertTask(store, { ...TASK, repo: "/other" })).toBeNull();
-    expect(taskByName(store, named("a"))).toEqual({ ...TASK, state: "running" });
-    expect(taskByName(store, named("b"))).toBeNull();
-  });
-
-  test("ends only a running task, returning it, and null once it has ended", () => {
-    const store = freshStore();
-    insertTask(store, TASK);
-    insertTask(store, { ...TASK, name: named("b") });
-    const ended = "2026-10-16T11:00:00.000Z";
-    expect(finishTask(store, named("a"), ended, ["c1", "c2"])).toEqual({
-      ...TASK,
-      state: "done",
-      ended,
-      commits: ["c1", "c2"],
-    });
-    expect(dropTask(store, named("b"), ended, "died")).toEqual({
-      ...TASK,
+    expect(insertRunning(store, RUNNING)).toEqual({ ...RUNNING, state: "running" });
+    expect(insertRunning(store, { ...RUNNING, repo: "/other" })).toBeNull();
+    expect(insertQueued(store, { ...QUEUED, name: named("b") })).toEqual({
+      ...QUEUED,
       name: named("b"),
-      state: "dropped",
-      ended,
-      reason: "died",
+      state: "queued",
     });
-    expect(finishTask(store, named("a"), ended, ["c3"])).toBeNull();
-    expect(dropTask(store, named("a"), ended, "x")).toBeNull();
-    expect(finishTask(store, named("b"), ended, ["c3"])).toBeNull();
-    expect(dropTask(store, named("missing"), ended, "x")).toBeNull();
-    expect(taskByName(store, named("a"))).toMatchObject({ state: "done", commits: ["c1", "c2"] });
+    expect(insertQueued(store, QUEUED)).toBeNull();
+    expect(taskByName(store, named("a"))).toEqual({ ...RUNNING, state: "running" });
+    expect(taskByName(store, named("c"))).toBeNull();
   });
 
-  test("lists only running tasks, oldest first and by name within one time", () => {
+  test("stops only a running task back to queued, keeping its added time, and removes a task in any state", () => {
     const store = freshStore();
-    insertTask(store, { ...TASK, name: named("alpha"), started: "2026-10-16T12:00:00.000Z" });
-    insertTask(store, { ...TASK, name: named("tie-b"), started: "2026-10-16T11:00:00.000Z" });
-    insertTask(store, { ...TASK, name: named("tie-a"), started: "2026-10-16T11:00:00.000Z" });
-    insertTask(store, { ...TASK, name: named("zeta") });
-    insertTask(store, { ...TASK, name: named("gone") });
-    dropTask(store, named("gone"), "2026-10-16T13:00:00.000Z", "x");
-    expect(runningTasks(store).map(({ name }) => name)).toEqual([
+    insertRunning(store, RUNNING);
+    insertQueued(store, { ...QUEUED, name: named("b") });
+    expect(stopTask(store, named("a"))).toEqual({ ...QUEUED, state: "queued" });
+    expect(stopTask(store, named("a"))).toBeNull();
+    expect(stopTask(store, named("missing"))).toBeNull();
+    expect(removeTask(store, named("a"))).toEqual({ ...QUEUED, state: "queued" });
+    expect(removeTask(store, named("a"))).toBeNull();
+    expect(taskByName(store, named("a"))).toBeNull();
+    expect(insertRunning(store, RUNNING)).toMatchObject({ state: "running" });
+    expect(removeTask(store, named("a"))).toEqual({ ...RUNNING, state: "running" });
+    expect(removeTask(store, named("b"))).toMatchObject({ state: "queued" });
+    expect(startedTasks(store)).toEqual([]);
+  });
+
+  test("lists started tasks oldest first and by name within one time, and queued tasks apart", () => {
+    const store = freshStore();
+    insertRunning(store, { ...RUNNING, name: named("alpha"), started: "2026-10-16T12:00:00.000Z" });
+    insertRunning(store, { ...RUNNING, name: named("tie-b"), started: "2026-10-16T11:00:00.000Z" });
+    insertRunning(store, { ...RUNNING, name: named("tie-a"), started: "2026-10-16T11:00:00.000Z" });
+    insertRunning(store, { ...RUNNING, name: named("zeta") });
+    insertQueued(store, { ...QUEUED, name: named("later"), added: "2026-10-16T13:00:00.000Z" });
+    insertQueued(store, { ...QUEUED, name: named("sooner") });
+    expect(startedTasks(store).map(({ name }) => name)).toEqual([
       named("zeta"),
       named("tie-a"),
       named("tie-b"),
       named("alpha"),
     ]);
+    expect(queuedTasks(store).map(({ name }) => name)).toEqual([named("sooner"), named("later")]);
   });
 
   test("refuses a row that breaks a state's rule, so the database holds them", () => {
     const store = freshStore();
-    insertTask(store, TASK);
+    insertRunning(store, RUNNING);
+    expect(() => store.db.run("UPDATE tasks SET state = 'queued' WHERE name = 'a'")).toThrow();
+    expect(() => store.db.run("UPDATE tasks SET brief = NULL WHERE name = 'a'")).toThrow();
+    expect(() => store.db.run("UPDATE tasks SET started_at = NULL WHERE name = 'a'")).toThrow();
     expect(() => store.db.run("UPDATE tasks SET state = 'done' WHERE name = 'a'")).toThrow();
     expect(() =>
-      store.db.run("UPDATE tasks SET state = 'dropped', ended_at = 'x' WHERE name = 'a'"),
+      store.db.run(
+        "UPDATE tasks SET state = 'queued', brief = NULL, brief_sha = NULL, started_at = NULL WHERE name = 'a'",
+      ),
     ).toThrow();
-    expect(() => store.db.run("UPDATE tasks SET state = 'lost', ended_at = 'x' WHERE name = 'a'")).toThrow();
-    expect(() => store.db.run("INSERT INTO task_commits (task, sha) VALUES ('nobody', 'c')")).toThrow();
+  });
+
+  test("migrates a version-1 store, keeping its running tasks with their start time as the added time and no session, and removing the ended ones", () => {
+    const path = versionOneStore();
+    const store = openStore(path, WAIT);
+    expect(startedTasks(store)).toEqual([
+      {
+        name: named("old-running"),
+        state: "running",
+        repo: "/r",
+        added: "2026-10-15T08:00:00.000Z",
+        brief: "/r/old.md",
+        briefSha: "sha1",
+        session: null,
+        started: "2026-10-15T08:00:00.000Z",
+      },
+    ]);
+    expect(taskByName(store, named("old-done"))).toBeNull();
+    expect(taskByName(store, named("old-dropped"))).toBeNull();
+    expect(
+      store.db
+        .query<{ n: number }, []>("SELECT count(*) AS n FROM sqlite_master WHERE name = 'task_commits'")
+        .get()?.n,
+    ).toBe(0);
+    expect(store.db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(2);
+    closeStore(store);
+    expect(insertRunning(openStore(path, WAIT), { ...RUNNING, name: named("old-done") })).toMatchObject({
+      state: "running",
+    });
+  });
+
+  test("reads a version-1 store as migratable without changing it, and a current or absent one as itself", () => {
+    const path = versionOneStore();
+    const bytes = readFileSync(path);
+    expect(readStore(path, WAIT)).toEqual({ kind: "migratable", found: 1 });
+    expect(readFileSync(path).equals(bytes)).toBe(true);
+    expect(readStore(join(scratchDir(), "none.db"), WAIT)).toEqual({ kind: "none" });
+    const current = freshStore();
+    closeStore(current);
+    const read = readStore(current.path, WAIT);
+    expect(read.kind).toBe("open");
+    if (read.kind === "open") closeStore(read.store);
   });
 
   test("refuses a store of another version and a file that is no store, leaving each as it was", () => {
     const newer = join(scratchDir(), "tasks.db");
     const db = new Database(newer);
-    db.run("PRAGMA user_version = 2");
+    db.run("PRAGMA user_version = 3");
     db.close();
     const bytes = readFileSync(newer);
     expect(() => openStore(newer, WAIT)).toThrow(
-      expect.objectContaining({ code: "store_version", meta: { path: newer, found: 2, expected: 1 } }),
+      expect.objectContaining({ code: "store_version", meta: { path: newer, found: 3, expected: 2 } }),
     );
+    expect(() => readStore(newer, WAIT)).toThrow(expect.objectContaining({ code: "store_version" }));
     expect(readFileSync(newer).equals(bytes)).toBe(true);
     const junk = join(scratchDir(), "tasks.db");
     writeFileSync(
@@ -116,8 +201,8 @@ describe("the store", () => {
     expect(() => openStore(path, WAIT)).toThrow(
       expect.objectContaining({ code: "store_busy", kind: "refusal", meta: { path, waitedMs: 0 } }),
     );
-    expect(() => insertTask(store, TASK)).toThrow(expect.objectContaining({ code: "store_busy" }));
+    expect(() => insertRunning(store, RUNNING)).toThrow(expect.objectContaining({ code: "store_busy" }));
     holder.run("ROLLBACK");
-    expect(insertTask(store, TASK)).toMatchObject({ name: named("a") });
+    expect(insertRunning(store, RUNNING)).toMatchObject({ name: named("a") });
   });
 });

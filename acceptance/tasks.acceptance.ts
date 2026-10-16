@@ -1,14 +1,12 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   binWith,
   brief,
-  commit,
   git,
-  listedTasks,
-  origin,
+  listing,
   type Ran,
   refusal,
   removeScratch,
@@ -25,21 +23,44 @@ afterEach(removeScratch);
 
 const BRIEF_SHA = "b0ac2230fd4c9051b89302545e75ece9b569e35f";
 
+const VERSION_ONE = `
+CREATE TABLE tasks (
+  name TEXT PRIMARY KEY,
+  repo TEXT NOT NULL,
+  brief TEXT NOT NULL,
+  brief_sha TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('running', 'done', 'dropped')),
+  ended_at TEXT,
+  reason TEXT
+) STRICT;
+CREATE TABLE task_commits (task TEXT NOT NULL REFERENCES tasks (name), sha TEXT NOT NULL, PRIMARY KEY (task, sha)) STRICT;
+PRAGMA user_version = 1;
+`;
+
 function listed(w: World): readonly Shown[] {
-  return listedTasks(run(w, w.root, ["list"]));
+  return listing(run(w, w.root, ["list"])).tasks;
+}
+
+function ready(w: World): readonly Shown[] {
+  return listing(run(w, w.root, ["list"])).ready;
 }
 
 function start(w: World, name: string, at: string, briefPath: string, cwd = w.root): Ran {
   return run(w, cwd, ["start", name, "--repo", at, "--brief", briefPath]);
 }
 
-function landedRepo(w: World, name = "repo"): string {
-  const dir = repo(w, name);
-  origin(w, dir, `${name}-origin.git`);
-  return dir;
+function storeOfVersion(w: World, version: number, schema = ""): string {
+  const dir = join(w.root, "data", "agent-task");
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, "tasks.db");
+  const db = new Database(path);
+  db.run(`${schema}\nPRAGMA user_version = ${version};`);
+  db.close();
+  return path;
 }
 
-test("AC-1 start records the task in the store under XDG_DATA_HOME, and list prints it unchanged", () => {
+test("AC-1 start records the task in the store under XDG_DATA_HOME, with its session when given, and list prints it unchanged", () => {
   const w = world();
   const dir = repo(w);
   const file = brief(w.root);
@@ -51,10 +72,22 @@ test("AC-1 start records the task in the store under XDG_DATA_HOME, and list pri
     repo: dir,
     brief: file,
     briefSha: BRIEF_SHA,
+    session: null,
   });
+  expect(started.added).toBe(started.started);
   expect(Date.parse(String(started.started))).toBeGreaterThanOrEqual(before - 1000);
   expect(existsSync(join(w.root, "data", "agent-task", "tasks.db"))).toBe(true);
-  expect(listed(w)).toEqual([{ ...started, briefChanged: false }]);
+  const withSession = result(
+    run(w, w.root, ["start", "task-b", "--repo", dir, "--brief", file, "--session", "session-1"]),
+  );
+  expect(withSession).toMatchObject({ name: "task-b", session: "session-1" });
+  expect(listing(run(w, w.root, ["list"]))).toEqual({
+    tasks: [
+      { ...started, briefChanged: false },
+      { ...withSession, briefChanged: false },
+    ],
+    ready: [],
+  });
 });
 
 test("AC-2 an unset, empty or relative XDG_DATA_HOME puts the store under HOME/.local/share", () => {
@@ -76,24 +109,19 @@ test("AC-2 an unset, empty or relative XDG_DATA_HOME puts the store under HOME/.
   }
 });
 
-test("AC-3 start from inside the repository and from a linked worktree records the main working tree, and done closes it once landed", () => {
+test("AC-3 start from inside the repository and from a linked worktree records the main working tree, and done removes the task after the worktree is gone", () => {
   const w = world();
-  const dir = landedRepo(w);
+  const dir = repo(w);
   const file = brief(w.root);
   const inside = join(dir, "inside");
   mkdirSync(inside);
   expect(result(start(w, "from-inside", "inside", file, dir))).toMatchObject({ repo: dir });
   const linked = join(w.root, "linked");
   git(w, dir, ["worktree", "add", "-q", "-b", "topic", linked]);
-  expect(result(start(w, "from-linked", linked, file))).toMatchObject({ repo: dir });
-  const sha = commit(w, linked, "work");
-  git(w, linked, ["push", "-q", "origin", "topic:main"]);
+  const fromLinked = result(start(w, "from-linked", linked, file));
+  expect(fromLinked).toMatchObject({ repo: dir });
   git(w, dir, ["worktree", "remove", linked]);
-  expect(result(run(w, w.root, ["done", "from-linked", "--commit", sha]))).toMatchObject({
-    name: "from-linked",
-    state: "done",
-    commits: [sha],
-  });
+  expect(result(run(w, w.root, ["done", "from-linked"]))).toEqual(fromLinked);
   expect(listed(w).map(({ name }) => name)).toEqual(["from-inside"]);
 });
 
@@ -131,37 +159,39 @@ test("AC-5 start refuses an invalid name and an unreadable brief, recording noth
   expect(listed(w)).toEqual([]);
 });
 
-test("AC-6 start refuses a name the store holds in any state, naming the state and what it admits", () => {
+test("AC-6 start refuses a running name, naming what it admits, starts a stopped one again keeping its added time, and starts a removed name afresh", () => {
   const w = world();
-  const dir = landedRepo(w);
+  const dir = repo(w);
+  const other = repo(w, "other");
   const file = brief(w.root);
-  const head = git(w, dir, ["rev-parse", "HEAD"]);
   const running = result(start(w, "running-one", dir, file));
-  result(start(w, "done-one", dir, file));
-  result(run(w, w.root, ["done", "done-one", "--commit", head]));
-  result(start(w, "dropped-one", dir, file));
-  result(run(w, w.root, ["drop", "dropped-one", "--reason", "given up"]));
   expect(refusal(start(w, "running-one", dir, file))).toMatchObject({
     code: "name_taken",
     meta: {
       name: "running-one",
       state: "running",
-      admits: [
-        "agent-task done running-one --commit <sha>...",
-        "agent-task drop running-one --reason <text>",
-      ],
+      admits: ["agent-task stop running-one", "agent-task done running-one"],
     },
   });
-  for (const [name, state] of [
-    ["done-one", "done"],
-    ["dropped-one", "dropped"],
-  ]) {
-    expect(refusal(start(w, String(name), dir, file))).toMatchObject({
-      code: "name_taken",
-      meta: { name, state, admits: [] },
-    });
-  }
   expect(listed(w)).toEqual([{ ...running, briefChanged: false }]);
+  const first = result(start(w, "stopped-one", dir, file));
+  result(run(w, w.root, ["stop", "stopped-one"]));
+  const again = result(
+    run(w, w.root, ["start", "stopped-one", "--repo", other, "--brief", file, "--session", "session-2"]),
+  );
+  expect(again).toMatchObject({
+    name: "stopped-one",
+    state: "running",
+    repo: other,
+    added: first.added,
+    session: "session-2",
+  });
+  expect(Date.parse(String(again.started))).toBeGreaterThanOrEqual(Date.parse(String(first.started)));
+  result(run(w, w.root, ["done", "stopped-one"]));
+  const fresh = result(start(w, "stopped-one", dir, file));
+  expect(fresh).toMatchObject({ repo: dir, session: null });
+  expect(fresh.added).toBe(fresh.started);
+  expect(ready(w)).toEqual([]);
 });
 
 test("AC-7 of several starts of one name at once, exactly one succeeds", async () => {
@@ -185,7 +215,7 @@ test("AC-7 of several starts of one name at once, exactly one succeeds", async (
   expect(listed(w)).toEqual([{ ...result(winner), briefChanged: false }]);
 });
 
-test("AC-8 list prints running tasks oldest first, reading each brief afresh to flag a changed or deleted one", () => {
+test("AC-8 list prints running tasks oldest first, reading each brief afresh to flag a changed or deleted one, and the stopped tasks as ready", () => {
   const w = world();
   const dir = repo(w);
   const amended = brief(w.root, "amended.md");
@@ -195,10 +225,12 @@ test("AC-8 list prints running tasks oldest first, reading each brief afresh to 
     ["zeta", amended],
     ["mu", deleted],
     ["gone", kept],
+    ["paused", kept],
     ["alpha", kept],
   ] as const)
     result(start(w, name, dir, file));
-  result(run(w, w.root, ["drop", "gone", "--reason", "worker died"]));
+  result(run(w, w.root, ["done", "gone"]));
+  const paused = result(run(w, w.root, ["stop", "paused"]));
   const unchanged = (tasks: readonly Shown[]) => tasks.map(({ name, briefChanged }) => [name, briefChanged]);
   expect(unchanged(listed(w))).toEqual([
     ["zeta", false],
@@ -212,122 +244,124 @@ test("AC-8 list prints running tasks oldest first, reading each brief afresh to 
     ["mu", true],
     ["alpha", false],
   ]);
+  expect(ready(w)).toEqual([paused]);
 });
 
-test("AC-9 done closes a task only when every sha is on origin's default branch, recording each full sha once, and refuses a ref name", () => {
-  const w = world();
-  const dir = landedRepo(w);
-  const file = brief(w.root);
-  const pushed = commit(w, dir, "pushed");
-  git(w, dir, ["push", "-q", "origin", "main"]);
-  result(start(w, "task-a", dir, file));
-  const closed = result(
-    run(w, w.root, ["done", "task-a", "--commit", pushed.slice(0, 8), "--commit", pushed]),
-  );
-  expect(closed).toMatchObject({ name: "task-a", state: "done", commits: [pushed] });
-  expect(listed(w)).toEqual([]);
-
-  result(start(w, "task-b", dir, file));
-  const unpushed = commit(w, dir, "unpushed");
-  const unknown = "0123456789abcdef0123456789abcdef01234567";
-  const args = ["done", "task-b", "--commit", pushed, "--commit", unpushed];
-  expect(refusal(run(w, w.root, [...args, "--commit", unknown]))).toMatchObject({
-    code: "not_landed",
-    meta: { name: "task-b", branch: "origin/main", unknown: [unknown], unmerged: [unpushed] },
-  });
-  expect(listed(w).map(({ name }) => name)).toEqual(["task-b"]);
-  for (const ref of ["HEAD", "origin/main"])
-    expect(refusal(run(w, w.root, ["done", "task-b", "--commit", ref]))).toMatchObject({
-      code: "invalid_sha",
-      meta: { name: "task-b", values: [ref] },
-    });
-  expect(listed(w).map(({ name }) => name)).toEqual(["task-b"]);
-  git(w, dir, ["push", "-q", "origin", "main"]);
-  expect(result(run(w, w.root, args))).toMatchObject({ state: "done", commits: [pushed, unpushed] });
-});
-
-test("AC-10 done refuses a repository with no origin, an unreachable origin, an origin with no default branch and a moved repository", () => {
-  const w = world();
-  const file = brief(w.root);
-  const lone = repo(w, "lone");
-  const unreachable = repo(w, "unreachable");
-  git(w, unreachable, ["remote", "add", "origin", join(w.root, "nowhere.git")]);
-  const headless = landedRepo(w, "headless");
-  git(w, join(w.root, "headless-origin.git"), ["symbolic-ref", "HEAD", "refs/heads/nothing"]);
-  const moved = landedRepo(w, "moved");
-  const cases = [
-    ["lone", lone, "no_origin"],
-    ["unreachable", unreachable, "remote_unreachable"],
-    ["headless", headless, "no_default_branch"],
-    ["moved", moved, "repo_missing"],
-  ] as const;
-  for (const [name, dir] of cases) result(start(w, name, dir, file));
-  renameSync(moved, join(w.root, "moved-away"));
-  for (const [name, dir, code] of cases) {
-    const head = git(w, existsSync(dir) ? dir : join(w.root, "moved-away"), ["rev-parse", "HEAD"]);
-    const refused = refusal(run(w, w.root, ["done", name, "--commit", head]));
-    expect(refused).toMatchObject({ code });
-    if (code === "repo_missing") expect(refused.resolve).toContain(`agent-task drop ${name} --reason <text>`);
-  }
-  expect(listed(w).map(({ name }) => name)).toEqual(["lone", "unreachable", "headless", "moved"]);
-});
-
-test("AC-11 drop ends a running task with its reason; an ended, unknown or invalid name is refused", () => {
+test("AC-9 stop takes a running task back to queued and done removes a task in either state; a wrong state, an unknown name and an invalid name are refused", () => {
   const w = world();
   const dir = repo(w);
   const file = brief(w.root);
-  result(start(w, "task-a", dir, file));
-  expect(result(run(w, w.root, ["drop", "task-a", "--reason", "worker died"]))).toMatchObject({
-    name: "task-a",
-    state: "dropped",
-    reason: "worker died",
+  const started = result(
+    run(w, w.root, ["start", "task-a", "--repo", dir, "--brief", file, "--session", "s"]),
+  );
+  const stopped = result(run(w, w.root, ["stop", "task-a"]));
+  expect(stopped).toEqual({ name: "task-a", state: "queued", repo: dir, added: started.added });
+  expect(refusal(run(w, w.root, ["stop", "task-a"]))).toMatchObject({
+    code: "wrong_state",
+    meta: {
+      name: "task-a",
+      act: "stop",
+      state: "queued",
+      admits: [
+        "agent-task start task-a --repo <path> --brief <file> [--session <id>]",
+        "agent-task done task-a",
+      ],
+    },
   });
-  for (const args of [
-    ["drop", "task-a", "--reason", "again"],
-    ["done", "task-a", "--commit", "abcd"],
-  ]) {
-    expect(refusal(run(w, w.root, args))).toMatchObject({
-      code: "not_running",
-      meta: { name: "task-a", state: "dropped", admits: [] },
-    });
+  expect(result(run(w, w.root, ["done", "task-a"]))).toEqual(stopped);
+  expect(result(start(w, "task-b", dir, file))).toMatchObject({ state: "running" });
+  expect(result(run(w, w.root, ["done", "task-b"]))).toMatchObject({ name: "task-b", state: "running" });
+  for (const [act, name] of [
+    ["stop", "task-a"],
+    ["done", "task-a"],
+    ["done", "task-b"],
+  ] as const) {
+    const unknown = refusal(run(w, w.root, [act, name]));
+    expect(unknown).toMatchObject({ code: "unknown_task", meta: { name, act } });
+    expect(unknown.resolve).toBe(`agent-task start ${name} --repo <path> --brief <file> [--session <id>]`);
   }
-  const unknown = refusal(run(w, w.root, ["drop", "nobody", "--reason", "x"]));
-  expect(unknown).toMatchObject({ code: "unknown_task", meta: { name: "nobody", act: "drop" } });
-  expect(unknown.resolve).toBe("agent-task start nobody --repo <path> --brief <file>");
-  for (const args of [
-    ["drop", "Task_A", "--reason", "x"],
-    ["done", "Task_A", "--commit", "abcd"],
-  ])
-    expect(refusal(run(w, w.root, args))).toMatchObject({ code: "invalid_name", meta: { name: "Task_A" } });
-  expect(listed(w)).toEqual([]);
+  for (const act of ["stop", "done"])
+    expect(refusal(run(w, w.root, [act, "Task_A"]))).toMatchObject({
+      code: "invalid_name",
+      meta: { name: "Task_A" },
+    });
+  expect(listing(run(w, w.root, ["list"]))).toEqual({ tasks: [], ready: [] });
 });
 
-test("AC-12 a store of another schema version is refused and left as it is", () => {
+test("AC-10 a store of a schema version this agent-task cannot read is refused and left as it is", () => {
   const w = world();
-  const dir = join(w.root, "data", "agent-task");
-  mkdirSync(dir);
-  const path = join(dir, "tasks.db");
-  const db = new Database(path);
-  db.run("PRAGMA user_version = 2");
-  db.close();
+  const path = storeOfVersion(w, 3);
   const before = readFileSync(path);
-  expect(refusal(run(w, w.root, ["list"]))).toMatchObject({ code: "store_version", meta: { found: 2 } });
+  expect(refusal(run(w, w.root, ["list"]))).toMatchObject({ code: "store_version", meta: { found: 3 } });
   expect(readFileSync(path).equals(before)).toBe(true);
 });
 
-test("AC-17 every command runs with git as the only program on PATH, and doctor names the hooks' missing programs", () => {
+test("AC-11 a version-1 store is migrated by the first command that opens it, keeping every running task and freeing the ended names", () => {
   const w = world();
-  const dir = landedRepo(w);
+  const dir = repo(w);
+  const kept = brief(w.root, "kept.md");
+  const amended = brief(w.root, "amended.md");
+  const path = storeOfVersion(w, 1, VERSION_ONE);
+  const db = new Database(path);
+  const insert = db.query(
+    "INSERT INTO tasks (name, repo, brief, brief_sha, started_at, state, ended_at, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+  );
+  const ended = "2026-10-14T09:00:00.000Z";
+  insert.run("old-b", dir, amended, BRIEF_SHA, "2026-10-15T09:00:00.000Z", "running", null, null);
+  insert.run("old-a", dir, kept, BRIEF_SHA, "2026-10-15T08:00:00.000Z", "running", null, null);
+  insert.run("old-done", dir, kept, BRIEF_SHA, "2026-10-14T08:00:00.000Z", "done", ended, null);
+  insert.run("old-dropped", dir, kept, BRIEF_SHA, "2026-10-14T08:00:00.000Z", "dropped", ended, "given up");
+  db.run("INSERT INTO task_commits VALUES ('old-done', 'abcdef0')");
+  db.close();
+  writeFileSync(amended, "# Brief\n\nA fix.\n");
+  const migrated = { repo: dir, briefSha: BRIEF_SHA, session: null, state: "running" };
+  expect(listing(run(w, w.root, ["list"]))).toEqual({
+    tasks: [
+      {
+        ...migrated,
+        name: "old-a",
+        brief: kept,
+        added: "2026-10-15T08:00:00.000Z",
+        started: "2026-10-15T08:00:00.000Z",
+        briefChanged: false,
+      },
+      {
+        ...migrated,
+        name: "old-b",
+        brief: amended,
+        added: "2026-10-15T09:00:00.000Z",
+        started: "2026-10-15T09:00:00.000Z",
+        briefChanged: true,
+      },
+    ],
+    ready: [],
+  });
+  const reopened = new Database(path, { readonly: true });
+  expect(reopened.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(2);
+  expect(
+    reopened
+      .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+      .all(),
+  ).toEqual([{ name: "tasks" }]);
+  reopened.close();
+  for (const name of ["old-done", "old-dropped"])
+    expect(result(start(w, name, dir, kept))).toMatchObject({ name, state: "running" });
+  expect(refusal(start(w, "old-a", dir, kept))).toMatchObject({ code: "name_taken" });
+});
+
+test("AC-16 every command runs with git as the only program on PATH, and doctor names the hooks' missing programs", () => {
+  const w = world();
+  const dir = repo(w);
   const file = brief(w.root);
   const bin = binWith(w, ["git"], false);
   const options = { env: { PATH: bin } };
-  const head = git(w, dir, ["rev-parse", "HEAD"]);
   for (const args of [
     ["start", "task-a", "--repo", dir, "--brief", file],
-    ["start", "task-b", "--repo", dir, "--brief", file],
+    ["start", "task-b", "--repo", dir, "--brief", file, "--session", "s"],
     ["list"],
-    ["done", "task-a", "--commit", head],
-    ["drop", "task-b", "--reason", "given up"],
+    ["stop", "task-a"],
+    ["done", "task-a"],
+    ["done", "task-b"],
   ])
     expect(run(w, w.root, args, options).exitCode).toBe(0);
   const { checks } = result(run(w, w.root, ["doctor"], options));
