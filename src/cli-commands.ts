@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { type Command, type Runtime, usageError } from "./cli-contract";
+import { type Command, type Outcome, type Runtime, usageError } from "./cli-contract";
 import { messageOf } from "./coded-error";
 import { storePath } from "./paths";
 import { closeStore, openStore } from "./store";
@@ -62,10 +62,10 @@ function manyValues(
   return [first, ...rest];
 }
 
-function withContext<T>(runtime: Runtime, act: (context: Context) => T): T {
+function withContext(runtime: Runtime, act: (context: Context) => unknown): Outcome {
   const store = openStore(storePath(runtime.env), runtime.busyWaitMs);
   try {
-    return act({ store, processEnv: runtime.processEnv, now: runtime.now });
+    return { value: act({ store, processEnv: runtime.processEnv, now: runtime.now }), status: 0 };
   } finally {
     closeStore(store);
   }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { version } from "../package.json";
 import { COMMANDS } from "./cli-commands";
-import { type Command, type Runtime, usageError } from "./cli-contract";
+import { type Command, type Outcome, type Runtime, usageError } from "./cli-contract";
 import { exitWithError, exitWithResult, exitWithVersion } from "./cli-output";
 
 const PROGRAM = "agent-task";
@@ -29,10 +29,14 @@ const runtime: Runtime = {
 const [name, ...args] = process.argv.slice(2);
 
 if (name === undefined || name === "--help")
-  exitWithResult(PROGRAM, {
-    commands: COMMANDS.map(({ name, usage, summary }) => ({ name, usage, summary })),
-    flags: FLAGS,
-  });
+  exitWithResult(
+    PROGRAM,
+    {
+      commands: COMMANDS.map(({ name, usage, summary }) => ({ name, usage, summary })),
+      flags: FLAGS,
+    },
+    0,
+  );
 
 if (name === VERSION_FLAG) {
   if (args.length > 0)
@@ -54,7 +58,7 @@ if (command === undefined)
     }),
   );
 
-function ranOrExited(command: Command): unknown {
+function ranOrExited(command: Command): Outcome {
   try {
     return command.run(args, runtime);
   } catch (error) {
@@ -62,4 +66,6 @@ function ranOrExited(command: Command): unknown {
   }
 }
 
-exitWithResult(command.name, ranOrExited(command));
+const { value, status } = ranOrExited(command);
+
+exitWithResult(command.name, value, status);

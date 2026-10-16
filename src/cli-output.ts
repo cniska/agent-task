@@ -1,13 +1,14 @@
 import { writeSync } from "node:fs";
+import type { ResultStatus } from "./cli-contract";
 import { EXIT_STATUS, recordOf } from "./coded-error";
 
 const STDOUT = 1;
 
 const STDERR = 2;
 
-export function exitWithResult(command: string, value: unknown): never {
+export function exitWithResult(command: string, value: unknown, status: ResultStatus): never {
   writeSync(STDOUT, `${JSON.stringify({ command, ok: true, result: value ?? null })}\n`);
-  return process.exit(0);
+  return process.exit(status);
 }
 
 export function exitWithVersion(version: string): never {

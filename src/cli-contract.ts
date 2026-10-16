@@ -10,11 +10,15 @@ export type Runtime = {
   readonly now: () => Date;
 };
 
+export type ResultStatus = 0 | 1;
+
+export type Outcome = { readonly value: unknown; readonly status: ResultStatus };
+
 export type Command = {
   readonly name: string;
   readonly usage: string;
   readonly summary: string;
-  run(args: readonly string[], runtime: Runtime): unknown;
+  run(args: readonly string[], runtime: Runtime): Outcome;
 };
 
 export const usageError = usageErrors<{
