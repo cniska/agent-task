@@ -44,10 +44,14 @@ export const USAGE = {
   drop: "agent-task drop <name> --reason <text>",
 } as const;
 
+function actFor(usage: string, name: string): string {
+  return usage.replace("<name>", name);
+}
+
 function admitted(name: string, state: State): readonly string[] {
   switch (state) {
     case "running":
-      return [USAGE.done, USAGE.drop].map((usage) => usage.replace("<name>", name));
+      return [USAGE.done, USAGE.drop].map((usage) => actFor(usage, name));
     case "done":
     case "dropped":
       return [];
@@ -105,12 +109,12 @@ const refuse = refusals<{
   },
   unknown_task: {
     message: ({ name }) => `the store holds no task named ${name}`,
-    resolve: ({ name }) => USAGE.start.replace("<name>", name),
+    resolve: ({ name }) => actFor(USAGE.start, name),
   },
   repo_missing: {
     message: ({ name, repo }) => `${name}'s repository ${repo} is gone`,
     resolve: ({ name, repo }) =>
-      `put the repository back at ${repo} and run done again, or ${USAGE.drop.replace("<name>", name)}`,
+      `put the repository back at ${repo} and run done again, or ${actFor(USAGE.drop, name)}`,
   },
   not_landed: {
     message: ({ branch, unknown, unmerged }) =>
@@ -149,8 +153,9 @@ function parseShas(name: TaskName, values: readonly [string, ...string[]]): read
   return shas;
 }
 
-function isDirectory(path: string): boolean {
-  return statSync(path, { throwIfNoEntry: false })?.isDirectory() === true;
+function requireRepository(task: Running): void {
+  if (statSync(task.repo, { throwIfNoEntry: false })?.isDirectory() !== true)
+    throw refuse("repo_missing", { name: task.name, repo: task.repo });
 }
 
 export type StartRequest = { readonly name: string; readonly repo: string; readonly brief: string };
@@ -192,7 +197,7 @@ export function done(
   const shas = parseShas(name, values);
   const task = taskByName(store, name);
   if (task === null || task.state !== "running") throw refuseByState("done", name, task);
-  if (!isDirectory(task.repo)) throw refuse("repo_missing", { name, repo: task.repo });
+  requireRepository(task);
   const { ref, branch } = landingBranch(task.repo, processEnv);
   const unknown: string[] = [];
   const unmerged: string[] = [];
