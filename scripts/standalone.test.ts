@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
 
-const GUARDED_DIRS = ["src", "acceptance", "scripts", "bin", "plugin", "npm"];
+const GUARDED_DIRS = ["src", "acceptance", "scripts", "bin", "plugin", "npm", "docs"];
 
 const SELF = "scripts/standalone.test.ts";
 
@@ -86,6 +86,8 @@ describe("the repo stands alone", () => {
     expect(paths).toContain("bin/agent-task");
     expect(paths).toContain("plugin/hooks/hooks.json");
     expect(paths).toContain("npm/agent-task");
+    expect(paths).toContain("docs/releasing.md");
+    expect(paths).toContain(".github/workflows/release.yml");
     expect(paths).toContain("SPEC.md");
     expect(paths).toContain("README.md");
     expect(paths).toContain(".github/workflows/check.yml");

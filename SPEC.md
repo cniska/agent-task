@@ -112,8 +112,8 @@ Coding agents run in parallel on one machine, each on a task started from a brie
 
 ## 6. Deliverables
 
-- **D-1** — The `agent-task` CLI, run by Bun from a checkout through `bin/agent-task` and linked onto `PATH` by `mise install` in the primary checkout; and beside it the release binary `scripts/build-compiled.sh` compiles, for darwin-arm64 and linux-x64, with `install.sh` and the npm packages that install it.
-- **D-2** — `README.md`, `AGENTS.md`, `src/README.md` and this spec.
+- **D-1** — The `agent-task` CLI, run by Bun from a checkout through `bin/agent-task` and linked onto `PATH` by `mise install` in the primary checkout; and beside it the release binary `scripts/build-compiled.sh` compiles, for darwin-arm64 and linux-x64, shipped by a GitHub release with `install.sh`, by the npm packages and by the `cniska/tap` Homebrew formula, as [`docs/releasing.md`](docs/releasing.md) says.
+- **D-2** — `README.md`, `AGENTS.md`, `src/README.md`, `docs/releasing.md` and this spec.
 - **D-3** — The test suite, run by `bun run check`, and the acceptance suite, run by `bun run acceptance`, whose test names cite the criteria in §5. The acceptance suite drives the CLI, the plugin's hooks as its `hooks.json` registers them, the compiled release binary, `install.sh` against a stand-in for the release downloads, and the npm packages through their launcher, from outside.
 - **D-4** — The `cniska-task` Claude Code plugin in `plugin/`.
 
