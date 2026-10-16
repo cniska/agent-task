@@ -427,9 +427,15 @@ export function insertRunning(store: Store, task: NewRunning): Running | null {
 
 export type Start = Pick<Running, "name" | "repo" | "brief" | "briefSha" | "session" | "started">;
 
-export function startQueued(store: Store, task: Start): Running | null {
+export type Starting =
+  | { readonly kind: "blocked"; readonly after: readonly TaskName[] }
+  | { readonly kind: "started"; readonly task: Running };
+
+export function startQueued(store: Store, task: Start): Starting | null {
   const { db } = store;
   return immediately(store, () => {
+    const after = afterOf(db, task.name);
+    if (after.length > 0) return { kind: "blocked", after };
     const row = db
       .query<unknown, [string, string, string, string | null, string, string]>(
         `UPDATE tasks SET state = 'running', repo = ?, brief = ?, brief_sha = ?, session = ?, started_at = ?
@@ -438,12 +444,8 @@ export function startQueued(store: Store, task: Start): Running | null {
       .get(task.repo, task.brief, task.briefSha, task.session, task.started, task.name);
     if (row === null) return null;
     setAfter(db, task.name, []);
-    return parseRunning(row);
+    return { kind: "started", task: parseRunning(row) };
   });
-}
-
-export function heldAfter(store: Store, name: TaskName): readonly TaskName[] {
-  return translated(store, () => afterOf(store.db, name));
 }
 
 export type Waiting = { readonly after: readonly TaskName[]; readonly waits: string | null };

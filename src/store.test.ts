@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { named, removeScratchDirs, scratchDir } from "./repo.test-support";
 import {
   closeStore,
-  heldAfter,
   insertQueued,
   insertRunning,
   openStore,
@@ -135,14 +134,19 @@ describe("the store", () => {
     };
     expect(insertQueued(store, queued)).toMatchObject({ after: [] });
     insertQueued(store, { ...QUEUED, name: named("b") });
-    expect(heldAfter(store, named("a"))).toEqual([named("b")]);
-    expect(taskByName(store, named("a"))).toMatchObject({ after: [named("b")] });
-    removeTask(store, named("b"));
-    expect(heldAfter(store, named("a"))).toEqual([]);
+    const held = { ...queued, state: "queued" as const, after: [named("b")] };
+    expect(taskByName(store, named("a"))).toEqual(held);
     const start = { name: named("a"), repo: "/moved", ...STARTED };
+    expect(startQueued(store, start)).toEqual({ kind: "blocked", after: [named("b")] });
+    expect(taskByName(store, named("a"))).toEqual(held);
+    removeTask(store, named("b"));
+    expect(taskByName(store, named("a"))).toMatchObject({ after: [] });
     const { after, ...fields } = queued;
     expect(after).toHaveLength(2);
-    expect(startQueued(store, start)).toEqual({ ...fields, ...start, state: "running" });
+    expect(startQueued(store, start)).toEqual({
+      kind: "started",
+      task: { ...fields, ...start, state: "running" },
+    });
     expect(startQueued(store, start)).toBeNull();
     expect(startQueued(store, { ...start, name: named("missing") })).toBeNull();
     expect(stopTask(store, named("a"))).toEqual({ ...queued, repo: "/moved", after: [], state: "queued" });

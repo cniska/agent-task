@@ -4,7 +4,6 @@ import { refusals } from "./coded-error";
 import { permits } from "./file";
 import { blobSha, mainWorkingTree, type ProcessEnv } from "./git";
 import {
-  heldAfter,
   type InReview,
   insertQueued,
   insertRunning,
@@ -180,11 +179,11 @@ export function start({ store, processEnv, now }: Context, request: StartRequest
   const briefSha = blobSha(request.brief, processEnv);
   if (briefSha === null) throw refuse("brief_unreadable", { brief: request.brief });
   const brief = realpathSync(request.brief);
-  const after = heldAfter(store, name);
-  if (after.length > 0) throw refuse("blocked", { name, after });
   const started = now().toISOString();
   const task = { name, repo, brief, briefSha, session: request.session, started };
-  const running = startQueued(store, task) ?? insertRunning(store, { ...task, ...UNQUEUED, added: started });
+  const starting = startQueued(store, task);
+  if (starting?.kind === "blocked") throw refuse("blocked", { name, after: starting.after });
+  const running = starting?.task ?? insertRunning(store, { ...task, ...UNQUEUED, added: started });
   if (running === null) throw refuseByState("start", name, taskByName(store, name));
   return running;
 }
