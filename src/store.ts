@@ -31,6 +31,8 @@ const TASK_COLUMNS = "name, repo, brief, brief_sha, started_at, state, ended_at,
 
 const BUSY = "SQLITE_BUSY";
 
+const WAL_RETRY_MS = 5;
+
 const UNOPENABLE = ["SQLITE_CANTOPEN", "SQLITE_NOTADB"];
 
 const refuse = refusals<{
@@ -139,12 +141,25 @@ function refuseOtherVersion(db: Database, path: string): void {
   throw refuse("store_version", { path, found, expected: SCHEMA_VERSION });
 }
 
+function enableWal(db: Database, busyWaitMs: number): void {
+  const deadline = Date.now() + busyWaitMs;
+  for (;;) {
+    try {
+      db.run("PRAGMA journal_mode = WAL");
+      return;
+    } catch (error) {
+      if (!sqliteCode(error)?.startsWith(BUSY) || Date.now() >= deadline) throw error;
+      Bun.sleepSync(WAL_RETRY_MS);
+    }
+  }
+}
+
 export function openStore(path: string, busyWaitMs: number): Store {
   const db = connect(path, busyWaitMs);
   try {
-    translated({ path, busyWaitMs }, () => refuseOtherVersion(db, path));
+    translated({ path, busyWaitMs }, () => db.transaction(() => refuseOtherVersion(db, path)).deferred());
     translated({ path, busyWaitMs }, () => {
-      db.run("PRAGMA journal_mode = WAL");
+      enableWal(db, busyWaitMs);
       db.run("PRAGMA foreign_keys = ON");
       db.transaction(() => {
         if (userVersion(db) === 0 && holdsNoTables(db)) db.run(SCHEMA);

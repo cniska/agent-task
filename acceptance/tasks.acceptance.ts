@@ -176,7 +176,6 @@ test("AC-6 start refuses a name the store holds in any state, naming the state a
 test("AC-7 of several starts of one name at once, exactly one succeeds", async () => {
   const w = world();
   const file = brief(w.root);
-  result(run(w, w.root, ["list"]));
   const repos = ["one", "two", "three", "four", "five"].map((name) => repo(w, name));
   const ran = await runAtOnce(
     w,
