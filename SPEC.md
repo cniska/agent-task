@@ -63,18 +63,23 @@ Coding agents run in parallel on one machine, each on a task started from a brie
 - **FR-23** — `doctor` looks through `PATH` for an executable `bash`, `agent-task`, `jq` and `realpath`, which the plugin's hooks need (FR-20, C-3), and `git`, and runs none of them but git. Each detail names where the program was found, or the directories searched. A missing hook program warns, naming the hooks that go silent without it, since `doctor` cannot tell whether the plugin is installed; a missing git fails.
 - **FR-24** — For each running task, oldest first, `doctor` checks its repository in `done`'s order: a repository that is not a directory fails naming `drop` as `repo_missing` does; without git on `PATH` the repository warns as unchecked; one with no `remote.origin.url` fails, as `done` would refuse it `no_origin`; one that is not a checkout git can confirm, or is no longer its own main working tree, warns naming `drop`, since `done` still runs there. Whether origin answers, and whether it names a default branch, stay `done`'s to find. A brief that is not a readable file warns naming `drop`.
 
+### 2.10 The release build
+
+- **FR-25** — `scripts/build-compiled.sh <outfile>` compiles the CLI into one executable that carries the version and SQLite through Bun's driver, so it runs every command with no checkout of agent-task and no Bun on the machine.
+- **FR-26** — `install.sh`, run by `curl … | sh`, downloads the latest release's build for this platform, checks it against its published sha256, runs it for its version, and installs it as `~/.local/bin/agent-task`, writing it beside that path and renaming it into place. A download that fails, does not match its checksum, or reports a version that is not `x.y.z` installs nothing. Run again, it replaces the install.
+- **FR-27** — The npm package `@cniska/agent-task` installs the build for its platform from `@cniska/agent-task-darwin-arm64` or `@cniska/agent-task-linux-x64`, finds it where `npm` or `bun` installed it, and runs it with the arguments it was given, exiting as it exits, with no `node` or `bun` on `PATH`. On another platform, or with the platform package missing, it refuses with `no_build_for_platform` or `platform_package_missing`; with a platform build that is not executable, with `binary_failed`. Each refusal is the one JSON line on stderr that FR-17 gives an error, exiting 1.
+
 ## 3. Non-functional requirements
 
 - **NF-1** — The tests never read or write the real home: `HOME` and the XDG directories point at scratch directories.
 - **NF-2** — Every command reads the store, the filesystem and git afresh; nothing is remembered between commands.
-- **NF-3** — Every command runs with git as the only program on `PATH`.
+- **NF-3** — Every command of the CLI, run from a checkout or as the release binary, runs with git as the only program on `PATH`. The npm package's launcher also needs a POSIX shell and the system's `uname`, `readlink`, `dirname` and `sed` on `PATH`.
 
 ## 4. Out of scope
 
 - Worktrees: agent-task never creates, reads or checks one; a task may share its worktree's name.
 - A record of agent sessions, notes on how a task is going, and a backlog of work not yet started.
 - Showing one task, listing done or dropped tasks, who acted, experiments, dependencies, priority and a UI.
-- A release build, an installer and packages.
 
 ## 5. Acceptance criteria
 
@@ -101,16 +106,19 @@ Coding agents run in parallel on one machine, each on a task started from a brie
 - **AC-21** — `doctor` with no store, and `bash`, git, `jq`, `realpath` and `agent-task` on `PATH`: one JSON line on stdout with `ok` true, every check `ok` with a `null` fix, none failing, exit 0, and still no store; with a store of another schema version, as AC-12 sets up: the store check fails with `store_version`'s fix, one failing, exit 1 with `ok` true, and the file unchanged. (FR-17, FR-21, FR-22)
 - **AC-22** — `doctor` with no git on `PATH` and a task running: git fails, the task's repository warns as unchecked, and the exit is 1. (FR-23, FR-24)
 - **AC-23** — `doctor` with five tasks running: one in a repository whose origin is a path that does not exist, one in a repository with no origin, one whose repository moved, one whose repository is a directory inside a checkout with an origin, and one whose brief was deleted: the first `ok`, which shows no remote was contacted; no origin fails with `no_origin`'s act; the moved one fails naming `drop`; the one inside another checkout warns naming `drop`; the deleted brief warns naming `drop`; two failing, exit 1. (FR-21, FR-24)
+- **AC-24** — Compile the release binary and run it with only its own directory and git on `PATH`: `--version` prints the version, and in a scratch repository with a made-up brief `start`, `list`, `drop` and `doctor` each succeed, `doctor` with no failing check. (FR-25, NF-3)
+- **AC-25** — Run `install.sh` in a fresh home against a stand-in for the release downloads, twice, then once with a wrong checksum in another fresh home, then against builds that report an empty version, `1.2.3.4` and `../x`: the installed `agent-task --version` prints the release's version and `~/.local/bin` holds only it, and the bad download and each mislabelled build are refused with nothing written. (FR-26)
+- **AC-26** — Build the npm packages from a release build, install the shim into a prefix and run it with git and the system's shell utilities on `PATH` and no `node` or `bun`, first on a platform with no build, then without its platform package, then with it unexecutable, then whole: the first is refused as `no_build_for_platform`, the second as `platform_package_missing`, the third as `binary_failed`; then `--version` prints the package version, `--version now` exits 2 with the build's `wrong_arity` usage refusal, and in a scratch repository with a made-up brief `start`, `list`, `drop` and `doctor` each succeed, `doctor` with no failing check. (FR-27, NF-3)
 
 ## 6. Deliverables
 
-- **D-1** — The `agent-task` CLI, run by Bun from a checkout through `bin/agent-task` and linked onto `PATH` by `mise install` in the primary checkout.
+- **D-1** — The `agent-task` CLI, run by Bun from a checkout through `bin/agent-task` and linked onto `PATH` by `mise install` in the primary checkout; and beside it the release binary `scripts/build-compiled.sh` compiles, for darwin-arm64 and linux-x64, with `install.sh` and the npm packages that install it.
 - **D-2** — `README.md`, `AGENTS.md`, `src/README.md` and this spec.
-- **D-3** — The test suite, run by `bun run check`, and the acceptance suite, run by `bun run acceptance`, whose test names cite the criteria in §5. The acceptance suite drives the CLI, and the plugin's hooks as its `hooks.json` registers them, from outside.
+- **D-3** — The test suite, run by `bun run check`, and the acceptance suite, run by `bun run acceptance`, whose test names cite the criteria in §5. The acceptance suite drives the CLI, the plugin's hooks as its `hooks.json` registers them, the compiled release binary, `install.sh` against a stand-in for the release downloads, and the npm packages through their launcher, from outside.
 - **D-4** — The `cniska-task` Claude Code plugin in `plugin/`.
 
 ## 7. Constraints (fixed)
 
 - **C-1** — TypeScript on Bun, which mise installs, with SQLite through Bun's own driver.
-- **C-2** — git is the one program agent-task runs.
+- **C-2** — git is the one program the CLI runs, from a checkout or as the release binary. The npm package's launcher runs `uname`, `readlink`, `dirname` and `sed` before it hands over to the CLI.
 - **C-3** — The plugin brings neither Bun nor the CLI. Its hooks are shell that runs with a POSIX shell, bash, `jq`, `realpath` and `agent-task` alone, and they read the store only through the CLI.

@@ -1,9 +1,26 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 const ENTRY = join(import.meta.dir, "..", "src", "cli.ts");
+
+const MANIFEST = join(import.meta.dir, "..", "package.json");
+
+const BUILD_COMPILED = join(import.meta.dir, "..", "scripts", "build-compiled.sh");
+
+export const SYSTEM_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
+
+const RELEASE_DOWNLOADS = "https://github.com/cniska/agent-task/releases/latest/download";
 
 type Env = Readonly<Record<string, string>>;
 
@@ -60,13 +77,23 @@ export function binWith(w: World, programs: readonly string[], cli: boolean, nam
   return bin;
 }
 
-export function run(w: World, cwd: string, args: readonly string[], options: RunOptions = {}): Ran {
-  const ran = spawnSync(process.execPath, [ENTRY, ...args], {
-    cwd,
-    encoding: "utf8",
-    env: environment(w, options),
-  });
+export function runProgram(
+  w: World,
+  cwd: string,
+  program: string,
+  args: readonly string[],
+  options: RunOptions = {},
+): Ran {
+  const ran = spawnSync(program, args, { cwd, encoding: "utf8", env: environment(w, options) });
   return { exitCode: ran.status ?? -1, stdout: ran.stdout, stderr: ran.stderr };
+}
+
+export function run(w: World, cwd: string, args: readonly string[], options: RunOptions = {}): Ran {
+  return runProgram(w, cwd, process.execPath, [ENTRY, ...args], options);
+}
+
+export function shell(w: World, cwd: string, script: string, options: RunOptions = {}): Ran {
+  return runProgram(w, cwd, "sh", ["-c", script], options);
 }
 
 async function runAsync(w: World, cwd: string, args: readonly string[]): Promise<Ran> {
@@ -151,4 +178,60 @@ export function brief(dir: string, name = "brief.md", text = "# Brief\n"): strin
   const path = join(dir, name);
   writeFileSync(path, text);
   return path;
+}
+
+export function compiledBinary(w: World, dir: string): string {
+  mkdirSync(dir, { recursive: true });
+  const binary = join(dir, "agent-task");
+  const built = runProgram(w, dir, "bash", [BUILD_COMPILED, binary], {
+    env: { PATH: `${dirname(process.execPath)}:${SYSTEM_PATH}` },
+  });
+  if (built.exitCode !== 0) throw new Error(`build-compiled.sh exited ${built.exitCode}: ${built.stderr}`);
+  return binary;
+}
+
+export function releaseAssets(w: World, dir: string, binary: string, target: string): string {
+  mkdirSync(dir, { recursive: true });
+  const tarball = join(dir, `agent-task-${target}.tar.gz`);
+  const packed = runProgram(w, dir, "tar", ["-czf", tarball, "-C", dirname(binary), basename(binary)]);
+  if (packed.exitCode !== 0) throw new Error(`tar exited ${packed.exitCode}: ${packed.stderr}`);
+  const digest = new Bun.CryptoHasher("sha256").update(readFileSync(tarball)).digest("hex");
+  writeFileSync(join(dir, `agent-task-${target}.sha256`), `${digest}  agent-task-${target}.tar.gz\n`);
+  return dir;
+}
+
+export function curlServing(bin: string, assets: string): string {
+  mkdirSync(bin, { recursive: true });
+  const curl = join(bin, "curl");
+  writeFileSync(
+    curl,
+    [
+      "#!/bin/sh",
+      "url=; out=",
+      'while [ "$#" -gt 0 ]; do case "$1" in -o) out="$2"; shift ;; https://*) url="$1" ;; esac; shift; done',
+      `file="${assets}/\${url##*/}"`,
+      `case "$url" in ${RELEASE_DOWNLOADS}/*) ;; *) exit 22 ;; esac`,
+      '[ -f "$file" ] || exit 22',
+      'cp "$file" "$out"',
+      "",
+    ].join("\n"),
+  );
+  chmodSync(curl, 0o755);
+  return bin;
+}
+
+export function jsonLine(text: string): unknown {
+  const lines = text.split("\n");
+  if (lines.length !== 2 || lines[1] !== "") throw new Error(`expected one JSON line, got: ${text}`);
+  return JSON.parse(lines[0] ?? "");
+}
+
+function field(value: unknown, key: string): unknown {
+  return typeof value === "object" && value !== null ? Reflect.get(value, key) : undefined;
+}
+
+export function packageVersion(): string {
+  const version = field(JSON.parse(readFileSync(MANIFEST, "utf8")), "version");
+  if (typeof version !== "string") throw new Error(`${MANIFEST} names no version`);
+  return version;
 }
