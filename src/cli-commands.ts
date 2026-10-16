@@ -4,8 +4,8 @@ import { type Command, type Outcome, type Runtime, usageError } from "./cli-cont
 import { messageOf } from "./coded-error";
 import { DOCTOR_USAGE, doctor } from "./doctor";
 import { storePath } from "./paths";
-import { closeStore, openStore } from "./store";
-import { type Context, done, list, start, stop, USAGE } from "./tasks";
+import { closeStore, isPriority, openStore } from "./store";
+import { add, type Context, done, list, start, stop, USAGE, wait } from "./tasks";
 
 type Flags = Readonly<Record<string, { readonly type: "string"; readonly multiple?: boolean }>>;
 
@@ -63,6 +63,27 @@ function optionalValue(command: Command, values: Parsed["values"], flag: string)
   return value;
 }
 
+function manyValues(command: Command, values: Parsed["values"], flag: string): readonly string[] {
+  const value = values[flag];
+  if (value === undefined) return [];
+  const list = typeof value === "string" ? [value] : value;
+  if (list.some((entry) => entry.trim() === "")) refuseArguments(command, `needs a value after --${flag}`);
+  return list;
+}
+
+function afterNames(command: Command, values: Parsed["values"], name: string): readonly string[] {
+  const after = manyValues(command, values, "after");
+  if (after.includes(name)) refuseArguments(command, `${name} cannot wait after itself`);
+  return after;
+}
+
+function priorityValue(command: Command, values: Parsed["values"]) {
+  const value = optionalValue(command, values, "priority");
+  if (value === null) return null;
+  if (!isPriority(value)) refuseArguments(command, `--priority is urgent, high, medium or low, not ${value}`);
+  return value;
+}
+
 function withContext(runtime: Runtime, act: (context: Context) => unknown): Outcome {
   const store = openStore(storePath(runtime.env), runtime.busyWaitMs);
   try {
@@ -71,6 +92,34 @@ function withContext(runtime: Runtime, act: (context: Context) => unknown): Outc
     closeStore(store);
   }
 }
+
+const addCommand: Command = {
+  name: "add",
+  usage: USAGE.add,
+  summary:
+    "queue a task: its repository, goal, plan, priority and what it waits for; on a queued name, replace them",
+  run(args, runtime) {
+    const { positionals, values } = parsed(this, args, {
+      repo: { type: "string" },
+      goal: { type: "string" },
+      plan: { type: "string" },
+      priority: { type: "string" },
+      after: { type: "string", multiple: true },
+      waits: { type: "string" },
+    });
+    const name = oneName(this, positionals);
+    const repo = resolve(runtime.cwd, oneValue(this, values, "repo"));
+    const goal = oneValue(this, values, "goal");
+    const planPath = optionalValue(this, values, "plan");
+    const plan = planPath === null ? null : resolve(runtime.cwd, planPath);
+    const priority = priorityValue(this, values);
+    const after = afterNames(this, values, name);
+    const waits = optionalValue(this, values, "waits");
+    return withContext(runtime, (context) =>
+      add(context, { name, repo, goal, plan, priority, after, waits }),
+    );
+  },
+};
 
 const startCommand: Command = {
   name: "start",
@@ -90,10 +139,27 @@ const startCommand: Command = {
   },
 };
 
+const waitCommand: Command = {
+  name: "wait",
+  usage: USAGE.wait,
+  summary: "replace what a task waits for: tasks to land, on a queued task, and anything else as text",
+  run(args, runtime) {
+    const { positionals, values } = parsed(this, args, {
+      after: { type: "string", multiple: true },
+      waits: { type: "string" },
+    });
+    const name = oneName(this, positionals);
+    const after = afterNames(this, values, name);
+    const waits = optionalValue(this, values, "waits");
+    return withContext(runtime, (context) => wait(context, { name, after, waits }));
+  },
+};
+
 const listCommand: Command = {
   name: "list",
   usage: USAGE.list,
-  summary: "list the running tasks, flagging each whose brief changed since it started, and the queue",
+  summary:
+    "list the running tasks, flagging each whose brief changed since it started, then the queued tasks ready to start and those waiting",
   run(args, runtime) {
     noArguments(this, parsed(this, args, {}).positionals);
     return withContext(runtime, (context) => list(context));
@@ -103,7 +169,8 @@ const listCommand: Command = {
 const stopCommand: Command = {
   name: "stop",
   usage: USAGE.stop,
-  summary: "take a running task back to queued, freeing its brief",
+  summary:
+    "take a running task back to queued, freeing its brief and keeping its goal, plan, priority and waits",
   run(args, runtime) {
     const name = oneName(this, parsed(this, args, {}).positionals);
     return withContext(runtime, (context) => stop(context, name));
@@ -137,7 +204,9 @@ const doctorCommand: Command = {
 };
 
 export const COMMANDS: readonly Command[] = [
+  addCommand,
   startCommand,
+  waitCommand,
   listCommand,
   stopCommand,
   doneCommand,

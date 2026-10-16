@@ -22,11 +22,19 @@ function checkOf(storePath: string, searchPath: readonly string[], name: string)
   return found;
 }
 
-function storeWith(dir: string, briefPath: string | null): string {
+function storeWith(dir: string, briefPath: string | null, plan: string | null = null): string {
   const path = join(scratchDir(), "tasks.db");
   const store = openStore(path, 0);
-  const queued = { name: named("task-a"), repo: dir, added: "2026-10-16T10:00:00.000Z" };
-  if (briefPath === null) insertQueued(store, queued);
+  const queued = {
+    name: named("task-a"),
+    repo: dir,
+    goal: null,
+    plan,
+    priority: null,
+    waits: null,
+    added: "2026-10-16T10:00:00.000Z",
+  };
+  if (briefPath === null) insertQueued(store, { ...queued, after: [] });
   else
     insertRunning(store, {
       ...queued,
@@ -66,7 +74,12 @@ describe("doctor", () => {
 
   test("passes a store not yet made without making it, and fails one that cannot be opened", () => {
     const absent = join(scratchDir(), "data", "tasks.db");
-    expect(checkOf(absent, [GIT_DIR], "store")).toMatchObject({ state: "ok", fix: null });
+    expect(checkOf(absent, [GIT_DIR], "store")).toEqual({
+      name: "store",
+      state: "ok",
+      detail: `no store at ${absent} yet; add or start creates it`,
+      fix: null,
+    });
     expect(existsSync(dirname(absent))).toBe(false);
     const directory = join(scratchDir(), "tasks.db");
     mkdirSync(directory);
@@ -116,6 +129,26 @@ describe("doctor", () => {
     expect(running).toMatchObject({
       state: "warn",
       fix: `put the brief back at ${join(dir, "missing.md")}, or agent-task stop task-a`,
+    });
+  });
+
+  test("checks a task's plan only when it has one, warning on one it cannot read and naming add again", () => {
+    const dir = repo();
+    const none = report(storeWith(dir, null), [GIT_DIR]).checks;
+    expect(none.find(({ name }) => name === "task-a plan")).toBeUndefined();
+    const plan = brief(scratchDir(), "plan\n");
+    expect(checkOf(storeWith(dir, null, plan), [GIT_DIR], "task-a plan")).toEqual({
+      name: "task-a plan",
+      state: "ok",
+      detail: `${plan} is readable`,
+      fix: null,
+    });
+    const missing = join(scratchDir(), "missing.md");
+    expect(checkOf(storeWith(dir, brief(dir), missing), [GIT_DIR], "task-a plan")).toEqual({
+      name: "task-a plan",
+      state: "warn",
+      detail: `${missing} is not a readable file`,
+      fix: `put the plan back at ${missing}, or agent-task add task-a --repo <path> --goal <text> [--plan <file>] [--priority urgent|high|medium|low] [--after <name>]... [--waits <text>] again with another --plan or none`,
     });
   });
 

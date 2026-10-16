@@ -46,6 +46,20 @@ function ready(w: World): readonly Shown[] {
   return listing(run(w, w.root, ["list"])).ready;
 }
 
+function waiting(w: World): readonly Shown[] {
+  return listing(run(w, w.root, ["list"])).waiting;
+}
+
+function names(tasks: readonly Shown[]): readonly unknown[] {
+  return tasks.map(({ name }) => name);
+}
+
+function add(w: World, name: string, at: string, goal: string, ...flags: string[]): Ran {
+  return run(w, w.root, ["add", name, "--repo", at, "--goal", goal, ...flags]);
+}
+
+const UNQUEUED = { goal: null, plan: null, priority: null, waits: null };
+
 function start(w: World, name: string, at: string, briefPath: string, cwd = w.root): Ran {
   return run(w, cwd, ["start", name, "--repo", at, "--brief", briefPath]);
 }
@@ -73,6 +87,7 @@ test("AC-1 start records the task in the store under XDG_DATA_HOME, with its ses
     brief: file,
     briefSha: BRIEF_SHA,
     session: null,
+    ...UNQUEUED,
   });
   expect(started.added).toBe(started.started);
   expect(Date.parse(String(started.started))).toBeGreaterThanOrEqual(before - 1000);
@@ -87,6 +102,7 @@ test("AC-1 start records the task in the store under XDG_DATA_HOME, with its ses
       { ...withSession, briefChanged: false },
     ],
     ready: [],
+    waiting: [],
   });
 });
 
@@ -170,7 +186,11 @@ test("AC-6 start refuses a running name, naming what it admits, starts a stopped
     meta: {
       name: "running-one",
       state: "running",
-      admits: ["agent-task stop running-one", "agent-task done running-one"],
+      admits: [
+        "agent-task wait running-one [--after <name>]... [--waits <text>]",
+        "agent-task stop running-one",
+        "agent-task done running-one",
+      ],
     },
   });
   expect(listed(w)).toEqual([{ ...running, briefChanged: false }]);
@@ -255,7 +275,14 @@ test("AC-9 stop takes a running task back to queued and done removes a task in e
     run(w, w.root, ["start", "task-a", "--repo", dir, "--brief", file, "--session", "s"]),
   );
   const stopped = result(run(w, w.root, ["stop", "task-a"]));
-  expect(stopped).toEqual({ name: "task-a", state: "queued", repo: dir, added: started.added });
+  expect(stopped).toEqual({
+    name: "task-a",
+    state: "queued",
+    repo: dir,
+    ...UNQUEUED,
+    added: started.added,
+    after: [],
+  });
   expect(refusal(run(w, w.root, ["stop", "task-a"]))).toMatchObject({
     code: "wrong_state",
     meta: {
@@ -263,6 +290,8 @@ test("AC-9 stop takes a running task back to queued and done removes a task in e
       act: "stop",
       state: "queued",
       admits: [
+        "agent-task add task-a --repo <path> --goal <text> [--plan <file>] [--priority urgent|high|medium|low] [--after <name>]... [--waits <text>]",
+        "agent-task wait task-a [--after <name>]... [--waits <text>]",
         "agent-task start task-a --repo <path> --brief <file> [--session <id>]",
         "agent-task done task-a",
       ],
@@ -285,10 +314,212 @@ test("AC-9 stop takes a running task back to queued and done removes a task in e
       code: "invalid_name",
       meta: { name: "Task_A" },
     });
-  expect(listing(run(w, w.root, ["list"]))).toEqual({ tasks: [], ready: [] });
+  expect(listing(run(w, w.root, ["list"]))).toEqual({ tasks: [], ready: [], waiting: [] });
 });
 
-test("AC-10 a store of a schema version this agent-task cannot read is refused and left as it is", () => {
+test("AC-10 add queues a task with its goal, plan, priority, after and waits, listed as waiting or ready, and refuses a bad plan, an unknown after name, a path outside git, itself as after and a bad priority, recording nothing", () => {
+  const w = world();
+  const dir = repo(w);
+  const plan = brief(w.root, "plan.md", "# Plan\n");
+  const first = result(add(w, "task-b", dir, "land first"));
+  expect(first).toMatchObject({
+    name: "task-b",
+    state: "queued",
+    repo: dir,
+    ...UNQUEUED,
+    goal: "land first",
+    after: [],
+  });
+  expect(first.added).toBeDefined();
+  const inside = join(dir, "inside");
+  mkdirSync(inside);
+  const full = result(
+    add(
+      w,
+      "task-a",
+      inside,
+      "ship it",
+      "--plan",
+      "plan.md",
+      "--priority",
+      "high",
+      "--after",
+      "task-b",
+      "--waits",
+      "the owner's word",
+    ),
+  );
+  expect(full).toMatchObject({
+    name: "task-a",
+    state: "queued",
+    repo: dir,
+    goal: "ship it",
+    plan,
+    priority: "high",
+    waits: "the owner's word",
+    after: ["task-b"],
+  });
+  expect(listing(run(w, w.root, ["list"]))).toEqual({ tasks: [], ready: [first], waiting: [full] });
+  const unreadable = brief(w.root, "unreadable.md");
+  chmodSync(unreadable, 0o000);
+  for (const missing of [join(w.root, "missing.md"), unreadable, w.root])
+    expect(refusal(add(w, "task-c", dir, "g", "--plan", missing))).toMatchObject({
+      code: "plan_unreadable",
+      meta: { plan: missing },
+    });
+  expect(refusal(add(w, "task-c", dir, "g", "--after", "task-z"))).toMatchObject({
+    code: "unknown_task",
+    meta: { name: "task-z", act: "add" },
+    resolve: "agent-task start task-z --repo <path> --brief <file> [--session <id>]",
+  });
+  const outside = join(w.root, "outside");
+  mkdirSync(outside);
+  expect(refusal(add(w, "task-c", outside, "g"))).toMatchObject({ code: "not_a_checkout" });
+  for (const flags of [
+    ["--after", "task-c"],
+    ["--priority", "top"],
+  ]) {
+    const usage = add(w, "task-c", dir, "g", ...flags);
+    expect([usage.exitCode, usage.stdout]).toEqual([2, ""]);
+    expect(JSON.parse(usage.stderr).error).toMatchObject({ kind: "usage", code: "bad_arguments" });
+  }
+  expect(names([...ready(w), ...waiting(w)])).toEqual(["task-b", "task-a"]);
+});
+
+test("AC-11 add on a queued name replaces its record keeping the added time, and on a running name is refused name_taken leaving it", () => {
+  const w = world();
+  const dir = repo(w);
+  const other = repo(w, "other");
+  const first = result(add(w, "task-a", dir, "first", "--priority", "low", "--waits", "a word"));
+  const replaced = result(add(w, "task-a", other, "second"));
+  expect(replaced).toEqual({
+    name: "task-a",
+    state: "queued",
+    repo: other,
+    goal: "second",
+    plan: null,
+    priority: null,
+    waits: null,
+    added: first.added,
+    after: [],
+  });
+  const running = result(start(w, "task-b", dir, brief(w.root)));
+  expect(refusal(add(w, "task-b", dir, "again"))).toMatchObject({
+    code: "name_taken",
+    meta: { name: "task-b", state: "running" },
+  });
+  expect(listed(w)).toEqual([{ ...running, briefChanged: false }]);
+  expect(ready(w)).toEqual([replaced]);
+});
+
+test("AC-12 wait replaces what a task waits after and for, clears both given nothing, sets only the text on a running task, and refuses --after on a running task and an unknown name", () => {
+  const w = world();
+  const dir = repo(w);
+  result(add(w, "task-b", dir, "b"));
+  result(add(w, "task-c", dir, "c"));
+  const queued = result(add(w, "task-a", dir, "a", "--after", "task-b", "--waits", "one"));
+  expect(result(run(w, w.root, ["wait", "task-a", "--after", "task-c", "--waits", "two"]))).toEqual({
+    ...queued,
+    after: ["task-c"],
+    waits: "two",
+  });
+  expect(result(run(w, w.root, ["wait", "task-a"]))).toEqual({ ...queued, after: [], waits: null });
+  const running = result(start(w, "task-d", dir, brief(w.root)));
+  expect(result(run(w, w.root, ["wait", "task-d", "--waits", "a review"]))).toEqual({
+    ...running,
+    waits: "a review",
+  });
+  expect(refusal(run(w, w.root, ["wait", "task-d", "--after", "task-b"]))).toMatchObject({
+    code: "wrong_state",
+    meta: { name: "task-d", act: "wait", state: "running" },
+  });
+  expect(refusal(run(w, w.root, ["wait", "task-z", "--waits", "x"]))).toMatchObject({
+    code: "unknown_task",
+    meta: { name: "task-z", act: "wait" },
+  });
+  expect(listed(w)).toEqual([{ ...running, waits: "a review", briefChanged: false }]);
+});
+
+test("AC-13 start of a queued task is refused blocked while a name it waits after is held, and once each is done runs it keeping its goal, plan, priority, waits and added time and waiting after nothing", () => {
+  const w = world();
+  const dir = repo(w);
+  const file = brief(w.root);
+  const plan = brief(w.root, "plan.md", "# Plan\n");
+  result(add(w, "task-b", dir, "b"));
+  result(start(w, "task-c", dir, file));
+  const queued = result(
+    add(
+      w,
+      "task-a",
+      dir,
+      "a",
+      "--plan",
+      plan,
+      "--priority",
+      "urgent",
+      "--after",
+      "task-b",
+      "--after",
+      "task-c",
+      "--waits",
+      "ci",
+    ),
+  );
+  const blocked = refusal(start(w, "task-a", dir, file));
+  expect(blocked).toMatchObject({ code: "blocked", meta: { name: "task-a", after: ["task-b", "task-c"] } });
+  expect(blocked.resolve).toBe(
+    "agent-task done task-b; agent-task done task-c once each has landed, or agent-task wait task-a [--after <name>]... [--waits <text>] to wait after fewer",
+  );
+  expect(waiting(w)).toEqual([queued]);
+  result(run(w, w.root, ["done", "task-b"]));
+  expect(refusal(start(w, "task-a", dir, file))).toMatchObject({ meta: { after: ["task-c"] } });
+  result(run(w, w.root, ["done", "task-c"]));
+  const running = result(
+    run(w, w.root, ["start", "task-a", "--repo", dir, "--brief", file, "--session", "s1"]),
+  );
+  expect(running).toMatchObject({
+    name: "task-a",
+    state: "running",
+    repo: dir,
+    goal: "a",
+    plan,
+    priority: "urgent",
+    waits: "ci",
+    added: queued.added,
+    brief: file,
+    session: "s1",
+  });
+  expect(running.after).toBeUndefined();
+  expect(listing(run(w, w.root, ["list"]))).toEqual({
+    tasks: [{ ...running, briefChanged: false }],
+    ready: [],
+    waiting: [],
+  });
+});
+
+test("AC-14 list orders ready and waiting by priority with none last, then added time, then name; done of a name frees what waited after it, and add of the name again blocks them again", () => {
+  const w = world();
+  const dir = repo(w);
+  result(add(w, "low", dir, "g", "--priority", "low"));
+  result(add(w, "none-b", dir, "g"));
+  result(add(w, "none-a", dir, "g"));
+  result(add(w, "urgent", dir, "g", "--priority", "urgent"));
+  result(add(w, "high", dir, "g", "--priority", "high"));
+  result(add(w, "medium", dir, "g", "--priority", "medium", "--waits", "a word"));
+  result(add(w, "after-low", dir, "g", "--after", "low"));
+  expect(names(ready(w))).toEqual(["urgent", "high", "low", "none-b", "none-a"]);
+  expect(names(waiting(w))).toEqual(["medium", "after-low"]);
+  result(run(w, w.root, ["done", "low"]));
+  expect(names(ready(w))).toEqual(["urgent", "high", "none-b", "none-a", "after-low"]);
+  expect(waiting(w).map(({ name, after }) => [name, after])).toEqual([["medium", []]]);
+  result(add(w, "low", dir, "g"));
+  expect(waiting(w).map(({ name, after }) => [name, after])).toEqual([
+    ["medium", []],
+    ["after-low", ["low"]],
+  ]);
+});
+
+test("AC-15 a store of a schema version this agent-task cannot read is refused and left as it is", () => {
   const w = world();
   const path = storeOfVersion(w, 3);
   const before = readFileSync(path);
@@ -296,7 +527,7 @@ test("AC-10 a store of a schema version this agent-task cannot read is refused a
   expect(readFileSync(path).equals(before)).toBe(true);
 });
 
-test("AC-11 a version-1 store is migrated by the first command that opens it, keeping every running task and freeing the ended names", () => {
+test("AC-16 a version-1 store is migrated by the first command that opens it, keeping every running task and freeing the ended names", () => {
   const w = world();
   const dir = repo(w);
   const kept = brief(w.root, "kept.md");
@@ -314,7 +545,7 @@ test("AC-11 a version-1 store is migrated by the first command that opens it, ke
   db.run("INSERT INTO task_commits VALUES ('old-done', 'abcdef0')");
   db.close();
   writeFileSync(amended, "# Brief\n\nA fix.\n");
-  const migrated = { repo: dir, briefSha: BRIEF_SHA, session: null, state: "running" };
+  const migrated = { repo: dir, briefSha: BRIEF_SHA, session: null, state: "running", ...UNQUEUED };
   expect(listing(run(w, w.root, ["list"]))).toEqual({
     tasks: [
       {
@@ -335,6 +566,7 @@ test("AC-11 a version-1 store is migrated by the first command that opens it, ke
       },
     ],
     ready: [],
+    waiting: [],
   });
   const reopened = new Database(path, { readonly: true });
   expect(reopened.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(2);
@@ -342,26 +574,29 @@ test("AC-11 a version-1 store is migrated by the first command that opens it, ke
     reopened
       .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
       .all(),
-  ).toEqual([{ name: "tasks" }]);
+  ).toEqual([{ name: "task_after" }, { name: "tasks" }]);
   reopened.close();
   for (const name of ["old-done", "old-dropped"])
     expect(result(start(w, name, dir, kept))).toMatchObject({ name, state: "running" });
   expect(refusal(start(w, "old-a", dir, kept))).toMatchObject({ code: "name_taken" });
 });
 
-test("AC-16 every command runs with git as the only program on PATH, and doctor names the hooks' missing programs", () => {
+test("AC-21 every command runs with git as the only program on PATH, and doctor names the hooks' missing programs", () => {
   const w = world();
   const dir = repo(w);
   const file = brief(w.root);
   const bin = binWith(w, ["git"], false);
   const options = { env: { PATH: bin } };
   for (const args of [
+    ["add", "task-c", "--repo", dir, "--goal", "g", "--plan", file, "--priority", "low"],
     ["start", "task-a", "--repo", dir, "--brief", file],
     ["start", "task-b", "--repo", dir, "--brief", file, "--session", "s"],
+    ["wait", "task-c", "--after", "task-a", "--waits", "w"],
     ["list"],
     ["stop", "task-a"],
     ["done", "task-a"],
     ["done", "task-b"],
+    ["done", "task-c"],
   ])
     expect(run(w, w.root, args, options).exitCode).toBe(0);
   const { checks } = result(run(w, w.root, ["doctor"], options));

@@ -127,7 +127,11 @@ export function result(ran: Ran): Shown {
   return printed.result;
 }
 
-export type Listing = { readonly tasks: readonly Shown[]; readonly ready: readonly Shown[] };
+export type Listing = {
+  readonly tasks: readonly Shown[];
+  readonly ready: readonly Shown[];
+  readonly waiting: readonly Shown[];
+};
 
 export function listing(ran: Ran): Listing {
   expectExit(ran, 0);

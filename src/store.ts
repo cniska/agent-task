@@ -6,11 +6,25 @@ import { BUG, faults, refusals } from "./coded-error";
 
 export const SCHEMA_VERSION = 2;
 
+const PRIORITIES = ["urgent", "high", "medium", "low"] as const;
+
+export type Priority = (typeof PRIORITIES)[number];
+
+export function isPriority(value: string): value is Priority {
+  return PRIORITIES.some((priority) => priority === value);
+}
+
+const PRIORITY_RANK = `CASE priority ${PRIORITIES.map((priority, rank) => `WHEN '${priority}' THEN ${rank}`).join(" ")} ELSE ${PRIORITIES.length} END`;
+
 const TABLES = `
 CREATE TABLE tasks (
   name TEXT PRIMARY KEY,
   state TEXT NOT NULL CHECK (state IN ('queued', 'running')),
   repo TEXT NOT NULL,
+  goal TEXT,
+  plan TEXT,
+  priority TEXT CHECK (priority IN (${PRIORITIES.map((priority) => `'${priority}'`).join(", ")})),
+  waits TEXT,
   added_at TEXT NOT NULL,
   brief TEXT,
   brief_sha TEXT,
@@ -20,6 +34,11 @@ CREATE TABLE tasks (
   CHECK ((brief IS NULL) = (brief_sha IS NULL)),
   CHECK ((brief IS NULL) = (started_at IS NULL)),
   CHECK (brief IS NOT NULL OR session IS NULL)
+) STRICT;
+CREATE TABLE task_after (
+  task TEXT NOT NULL REFERENCES tasks (name) ON DELETE CASCADE,
+  after TEXT NOT NULL,
+  PRIMARY KEY (task, after)
 ) STRICT;
 `;
 
@@ -39,7 +58,8 @@ ${VERSION_PRAGMA}
 
 const MIGRATABLE_VERSION = 1;
 
-const TASK_COLUMNS = "name, state, repo, added_at, brief, brief_sha, session, started_at";
+const TASK_COLUMNS =
+  "name, state, repo, goal, plan, priority, waits, added_at, brief, brief_sha, session, started_at";
 
 const BUSY = "SQLITE_BUSY";
 
@@ -88,10 +108,14 @@ function taskName(row: Record<string, unknown>): TaskName {
 type Added = {
   readonly name: TaskName;
   readonly repo: string;
+  readonly goal: string | null;
+  readonly plan: string | null;
+  readonly priority: Priority | null;
+  readonly waits: string | null;
   readonly added: string;
 };
 
-export type Queued = Added & { readonly state: "queued" };
+export type Queued = Added & { readonly state: "queued"; readonly after: readonly TaskName[] };
 
 type Started = Added & {
   readonly brief: string;
@@ -233,6 +257,13 @@ function nullableText(row: Record<string, unknown>, column: string): string | nu
   return row[column] === null ? null : text(row, column);
 }
 
+function nullablePriority(row: Record<string, unknown>): Priority | null {
+  const value = nullableText(row, "priority");
+  if (value !== null && !isPriority(value))
+    throw fault("row_malformed", { detail: `${JSON.stringify(value)} is no priority` });
+  return value;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -242,44 +273,92 @@ function rowRecord(row: unknown): Record<string, unknown> {
   return row;
 }
 
-function parseTask(value: unknown): Task {
+function parseTask(value: unknown, after: readonly TaskName[]): Task {
   const row = rowRecord(value);
-  const added: Added = { name: taskName(row), repo: text(row, "repo"), added: text(row, "added_at") };
+  const added: Added = {
+    name: taskName(row),
+    repo: text(row, "repo"),
+    goal: nullableText(row, "goal"),
+    plan: nullableText(row, "plan"),
+    priority: nullablePriority(row),
+    waits: nullableText(row, "waits"),
+    added: text(row, "added_at"),
+  };
   const state = text(row, "state");
   const brief = nullableText(row, "brief");
   const briefSha = nullableText(row, "brief_sha");
   const started = nullableText(row, "started_at");
-  if (state === "queued" && brief === null) return { ...added, state };
+  if (state === "queued" && brief === null) return { ...added, state, after };
   if (state === "running" && brief !== null && briefSha !== null && started !== null)
     return { ...added, state, brief, briefSha, session: nullableText(row, "session"), started };
   throw fault("row_malformed", { detail: `state ${state} does not fit its brief and times` });
 }
 
-function parseQueued(value: unknown): Queued {
-  const task = parseTask(value);
+function parseQueued(value: unknown, after: readonly TaskName[]): Queued {
+  const task = parseTask(value, after);
   invariant(task.state === "queued", "a queued row is queued");
   return task;
 }
 
 function parseRunning(value: unknown): Running {
-  const task = parseTask(value);
+  const task = parseTask(value, []);
   invariant(task.state === "running", "a running row is running");
   return task;
+}
+
+function afterName(row: unknown): TaskName {
+  return taskName({ name: text(rowRecord(row), "after") });
+}
+
+const HELD_AFTER = "SELECT task, after FROM task_after WHERE after IN (SELECT name FROM tasks)";
+
+function afterOf(db: Database, name: TaskName): readonly TaskName[] {
+  return db
+    .query<unknown, [string]>(`SELECT after FROM (${HELD_AFTER}) WHERE task = ? ORDER BY after`)
+    .all(name)
+    .map(afterName);
+}
+
+function setAfter(db: Database, name: TaskName, after: readonly TaskName[]): void {
+  db.run("DELETE FROM task_after WHERE task = ?", [name]);
+  const insert = db.query("INSERT INTO task_after (task, after) VALUES (?, ?)");
+  for (const other of after) insert.run(name, other);
+}
+
+function immediately<T>(store: Store, act: () => T): T {
+  return translated(store, () => store.db.transaction(act).immediate());
 }
 
 export type NewQueued = Omit<Queued, "state">;
 
 export function insertQueued(store: Store, task: NewQueued): Queued | null {
   const { db } = store;
-  const row = translated(store, () =>
-    db
-      .query<unknown, [string, string, string]>(
-        `INSERT INTO tasks (name, state, repo, added_at) VALUES (?, 'queued', ?, ?)
-         ON CONFLICT (name) DO NOTHING RETURNING ${TASK_COLUMNS}`,
+  return immediately(store, () => {
+    const row = db
+      .query<unknown, [string, string, string | null, string | null, Priority | null, string | null, string]>(
+        `INSERT INTO tasks (name, state, repo, goal, plan, priority, waits, added_at)
+         VALUES (?, 'queued', ?, ?, ?, ?, ?, ?) ON CONFLICT (name) DO NOTHING RETURNING ${TASK_COLUMNS}`,
       )
-      .get(task.name, task.repo, task.added),
-  );
-  return row === null ? null : parseQueued(row);
+      .get(task.name, task.repo, task.goal, task.plan, task.priority, task.waits, task.added);
+    if (row === null) return null;
+    setAfter(db, task.name, task.after);
+    return parseQueued(row, afterOf(db, task.name));
+  });
+}
+
+export function replaceQueued(store: Store, task: Omit<NewQueued, "added">): Queued | null {
+  const { db } = store;
+  return immediately(store, () => {
+    const row = db
+      .query<unknown, [string, string | null, string | null, Priority | null, string | null, string]>(
+        `UPDATE tasks SET repo = ?, goal = ?, plan = ?, priority = ?, waits = ?
+         WHERE name = ? AND state = 'queued' RETURNING ${TASK_COLUMNS}`,
+      )
+      .get(task.repo, task.goal, task.plan, task.priority, task.waits, task.name);
+    if (row === null) return null;
+    setAfter(db, task.name, task.after);
+    return parseQueued(row, afterOf(db, task.name));
+  });
 }
 
 export type NewRunning = Omit<Running, "state">;
@@ -288,26 +367,77 @@ export function insertRunning(store: Store, task: NewRunning): Running | null {
   const { db } = store;
   const row = translated(store, () =>
     db
-      .query<unknown, [string, string, string, string, string, string | null, string]>(
-        `INSERT INTO tasks (name, state, repo, added_at, brief, brief_sha, session, started_at)
-         VALUES (?, 'running', ?, ?, ?, ?, ?, ?) ON CONFLICT (name) DO NOTHING RETURNING ${TASK_COLUMNS}`,
+      .query<
+        unknown,
+        [
+          string,
+          string,
+          string | null,
+          string | null,
+          Priority | null,
+          string | null,
+          string,
+          string,
+          string,
+          string | null,
+          string,
+        ]
+      >(
+        `INSERT INTO tasks (name, state, repo, goal, plan, priority, waits, added_at, brief, brief_sha, session, started_at)
+         VALUES (?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (name) DO NOTHING RETURNING ${TASK_COLUMNS}`,
       )
-      .get(task.name, task.repo, task.added, task.brief, task.briefSha, task.session, task.started),
+      .get(
+        task.name,
+        task.repo,
+        task.goal,
+        task.plan,
+        task.priority,
+        task.waits,
+        task.added,
+        task.brief,
+        task.briefSha,
+        task.session,
+        task.started,
+      ),
   );
   return row === null ? null : parseRunning(row);
 }
 
-export function startQueued(store: Store, task: Omit<NewRunning, "added">): Running | null {
+export type Start = Pick<Running, "name" | "repo" | "brief" | "briefSha" | "session" | "started">;
+
+export function startQueued(store: Store, task: Start): Running | null {
   const { db } = store;
-  const row = translated(store, () =>
-    db
+  return immediately(store, () => {
+    const row = db
       .query<unknown, [string, string, string, string | null, string, string]>(
         `UPDATE tasks SET state = 'running', repo = ?, brief = ?, brief_sha = ?, session = ?, started_at = ?
          WHERE name = ? AND state = 'queued' RETURNING ${TASK_COLUMNS}`,
       )
-      .get(task.repo, task.brief, task.briefSha, task.session, task.started, task.name),
-  );
-  return row === null ? null : parseRunning(row);
+      .get(task.repo, task.brief, task.briefSha, task.session, task.started, task.name);
+    if (row === null) return null;
+    setAfter(db, task.name, []);
+    return parseRunning(row);
+  });
+}
+
+export function heldAfter(store: Store, name: TaskName): readonly TaskName[] {
+  return translated(store, () => afterOf(store.db, name));
+}
+
+export type Waiting = { readonly after: readonly TaskName[]; readonly waits: string | null };
+
+export function setWaiting(store: Store, name: TaskName, { after, waits }: Waiting): Task | null {
+  const { db } = store;
+  return immediately(store, () => {
+    const row = db
+      .query<unknown, [string | null, string, number]>(
+        `UPDATE tasks SET waits = ? WHERE name = ? AND (state = 'queued' OR ?) RETURNING ${TASK_COLUMNS}`,
+      )
+      .get(waits, name, after.length === 0 ? 1 : 0);
+    if (row === null) return null;
+    setAfter(db, name, after);
+    return parseTask(row, afterOf(db, name));
+  });
 }
 
 export function stopTask(store: Store, name: TaskName): Queued | null {
@@ -320,23 +450,26 @@ export function stopTask(store: Store, name: TaskName): Queued | null {
       )
       .get(name),
   );
-  return row === null ? null : parseQueued(row);
+  return row === null ? null : parseQueued(row, []);
 }
 
 export function removeTask(store: Store, name: TaskName): Task | null {
   const { db } = store;
-  const row = translated(store, () =>
-    db.query<unknown, [string]>(`DELETE FROM tasks WHERE name = ? RETURNING ${TASK_COLUMNS}`).get(name),
-  );
-  return row === null ? null : parseTask(row);
+  return immediately(store, () => {
+    const after = afterOf(db, name);
+    const row = db
+      .query<unknown, [string]>(`DELETE FROM tasks WHERE name = ? RETURNING ${TASK_COLUMNS}`)
+      .get(name);
+    return row === null ? null : parseTask(row, after);
+  });
 }
 
 export function taskByName(store: Store, name: TaskName): Task | null {
   const { db } = store;
-  const row = translated(store, () =>
-    db.query<unknown, [string]>(`SELECT ${TASK_COLUMNS} FROM tasks WHERE name = ?`).get(name),
-  );
-  return row === null ? null : parseTask(row);
+  return translated(store, () => {
+    const row = db.query<unknown, [string]>(`SELECT ${TASK_COLUMNS} FROM tasks WHERE name = ?`).get(name);
+    return row === null ? null : parseTask(row, afterOf(db, name));
+  });
 }
 
 export function startedTasks(store: Store): readonly Running[] {
@@ -353,12 +486,21 @@ export function startedTasks(store: Store): readonly Running[] {
 
 export function queuedTasks(store: Store): readonly Queued[] {
   const { db } = store;
-  const rows = translated(store, () =>
-    db
-      .query<unknown, []>(`SELECT ${TASK_COLUMNS} FROM tasks WHERE state = 'queued' ORDER BY added_at, name`)
-      .all(),
-  );
-  return rows.map(parseQueued);
+  return translated(store, () => {
+    const afters = new Map<string, TaskName[]>();
+    for (const row of db.query<unknown, []>(`${HELD_AFTER} ORDER BY task, after`).all()) {
+      const record = rowRecord(row);
+      const list = afters.get(text(record, "task")) ?? [];
+      list.push(afterName(row));
+      afters.set(text(record, "task"), list);
+    }
+    return db
+      .query<unknown, []>(
+        `SELECT ${TASK_COLUMNS} FROM tasks WHERE state = 'queued' ORDER BY ${PRIORITY_RANK}, added_at, name`,
+      )
+      .all()
+      .map((row) => parseQueued(row, afters.get(text(rowRecord(row), "name")) ?? []));
+  });
 }
 
 export function closeStore({ db }: Store): void {

@@ -85,7 +85,7 @@ function context(ran: Ran): string {
 
 const SILENT = { exitCode: 0, stdout: "", stderr: "" };
 
-test("AC-17 the edit hook denies an edit to a running task's brief through each tool, naming stop, the edit and start again, and passes another file", () => {
+test("AC-22 the edit hook denies an edit to a running task's brief through each tool, naming stop, the edit and start again, and passes another file", () => {
   const w = world();
   const bin = binWith(w, ON_PATH, true);
   const dir = repo(w);
@@ -120,7 +120,7 @@ test("AC-17 the edit hook denies an edit to a running task's brief through each 
   expect(hook(w, bin, "PreToolUse", dir, noCwd)).toEqual(SILENT);
 });
 
-test("AC-18 the session hook puts the running tasks in context where the working directory holds a running brief, and prints nothing elsewhere", () => {
+test("AC-23 the session hook puts the running tasks in context where the working directory holds a running brief, and prints nothing elsewhere", () => {
   const w = world();
   const bin = binWith(w, ON_PATH, true);
   const dir = repo(w);
@@ -163,7 +163,7 @@ test("AC-18 the session hook puts the running tasks in context where the working
   expect(sessionStart(w, bin, join(dir, "missing"), dir)).toEqual(SILENT);
 });
 
-test("AC-19 both hooks print nothing and exit 0 over a store of a schema version agent-task cannot read, with no agent-task on PATH, and with only a note on stderr without jq or realpath", () => {
+test("AC-24 both hooks print nothing and exit 0 over a store of a schema version agent-task cannot read, with no agent-task on PATH, and with only a note on stderr without jq or realpath", () => {
   const w = world();
   const dir = repo(w);
   const file = brief(dir, "brief.md");

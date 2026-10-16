@@ -41,7 +41,7 @@ function started(w: World, name: string, dir: string, file: string): void {
   expect(run(w, w.root, ["start", name, "--repo", dir, "--brief", file]).exitCode).toBe(0);
 }
 
-test("AC-20 doctor passes with no store and makes none, warns a version-1 store naming list, and fails one it cannot read, leaving each", () => {
+test("AC-25 doctor passes with no store and makes none, warns a version-1 store naming list, and fails one it cannot read, leaving each", () => {
   const w = world();
   const bin = binWith(w, PROGRAMS, true);
   const fresh = doctor(w, bin, 0);
@@ -88,7 +88,7 @@ test("AC-20 doctor passes with no store and makes none, warns a version-1 store 
   expect(readFileSync(path).equals(newer)).toBe(true);
 });
 
-test("AC-21 doctor without git on PATH fails git and leaves each task's repository unchecked", () => {
+test("AC-26 doctor without git on PATH fails git and leaves each task's repository unchecked", () => {
   const w = world();
   const dir = repo(w);
   started(w, "task-a", dir, brief(w.root));
@@ -99,7 +99,7 @@ test("AC-21 doctor without git on PATH fails git and leaves each task's reposito
   expect(printed.failing).toBe(1);
 });
 
-test("AC-22 doctor judges each task's repository, and each running task's brief, without contacting a remote", () => {
+test("AC-27 doctor judges each task's repository, each running task's brief and each plan a task names, without contacting a remote", () => {
   const w = world();
   const briefs = join(w.root, "briefs");
   mkdirSync(briefs);
@@ -129,6 +129,13 @@ test("AC-22 doctor judges each task's repository, and each running task's brief,
   started(w, "task-f", stopped, brief(briefs, "f.md"));
   expect(run(w, w.root, ["stop", "task-f"]).exitCode).toBe(0);
   rmSync(stopped, { recursive: true });
+  const plan = brief(briefs, "plan.md", "# Plan\n");
+  const lost = join(briefs, "lost.md");
+  const add = (name: string, at: string, file: string) =>
+    run(w, w.root, ["add", name, "--repo", at, "--goal", "g", "--plan", file]);
+  expect(add("task-g", healthy, plan).exitCode).toBe(0);
+  expect(add("task-h", healthy, brief(briefs, "lost.md")).exitCode).toBe(0);
+  rmSync(lost);
   const printed = doctor(w, binWith(w, PROGRAMS, true), 1);
   expect(printed.checks.map(({ name }) => name).slice(6)).toEqual([
     "task-a repository",
@@ -137,12 +144,27 @@ test("AC-22 doctor judges each task's repository, and each running task's brief,
     "task-d repository",
     "task-e repository",
     "task-f repository",
+    "task-g repository",
+    "task-h repository",
     "task-a brief",
     "task-b brief",
     "task-c brief",
     "task-d brief",
     "task-e brief",
+    "task-g plan",
+    "task-h plan",
   ]);
+  expect(check(printed, "task-g plan")).toEqual({
+    name: "task-g plan",
+    state: "ok",
+    detail: `${plan} is readable`,
+    fix: null,
+  });
+  expect(check(printed, "task-h plan")).toMatchObject({
+    state: "warn",
+    detail: `${lost} is not a readable file`,
+  });
+  expect(check(printed, "task-h plan").fix).toContain("agent-task add task-h");
   expect(check(printed, "task-a repository")).toMatchObject({ state: "ok", fix: null });
   expect(check(printed, "task-a brief")).toEqual({
     name: "task-a brief",

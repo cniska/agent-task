@@ -1,15 +1,21 @@
-import { realpathSync } from "node:fs";
+import { constants, realpathSync } from "node:fs";
 import { unreachable } from "./assert";
 import { refusals } from "./coded-error";
+import { permits } from "./file";
 import { blobSha, mainWorkingTree, type ProcessEnv } from "./git";
 import {
+  heldAfter,
+  insertQueued,
   insertRunning,
   isTaskName,
+  type Priority,
   type Queued,
   queuedTasks,
   type Running,
   removeTask,
+  replaceQueued,
   type Store,
+  setWaiting,
   startedTasks,
   startQueued,
   stopTask,
@@ -26,10 +32,12 @@ export type Context = {
 
 type State = Task["state"];
 
-type Act = "start" | "stop" | "done";
+type Act = "add" | "start" | "wait" | "stop" | "done";
 
 export const USAGE = {
+  add: "agent-task add <name> --repo <path> --goal <text> [--plan <file>] [--priority urgent|high|medium|low] [--after <name>]... [--waits <text>]",
   start: "agent-task start <name> --repo <path> --brief <file> [--session <id>]",
+  wait: "agent-task wait <name> [--after <name>]... [--waits <text>]",
   list: "agent-task list",
   stop: "agent-task stop <name>",
   done: "agent-task done <name>",
@@ -42,9 +50,9 @@ export function actFor(usage: string, name: string): string {
 function admitted(name: string, state: State): readonly string[] {
   switch (state) {
     case "queued":
-      return [USAGE.start, USAGE.done].map((usage) => actFor(usage, name));
+      return [USAGE.add, USAGE.wait, USAGE.start, USAGE.done].map((usage) => actFor(usage, name));
     case "running":
-      return [USAGE.stop, USAGE.done].map((usage) => actFor(usage, name));
+      return [USAGE.wait, USAGE.stop, USAGE.done].map((usage) => actFor(usage, name));
     default:
       return unreachable(state);
   }
@@ -57,6 +65,7 @@ function admittedText(name: string, state: State, admits: readonly string[]): st
 const refuse = refusals<{
   readonly invalid_name: { readonly name: string };
   readonly brief_unreadable: { readonly brief: string };
+  readonly plan_unreadable: { readonly plan: string };
   readonly name_taken: { readonly name: string; readonly state: State; readonly admits: readonly string[] };
   readonly wrong_state: {
     readonly name: string;
@@ -65,6 +74,7 @@ const refuse = refusals<{
     readonly admits: readonly string[];
   };
   readonly unknown_task: { readonly name: string; readonly act: Act };
+  readonly blocked: { readonly name: string; readonly after: readonly TaskName[] };
 }>({
   invalid_name: {
     message: ({ name }) =>
@@ -74,6 +84,10 @@ const refuse = refusals<{
   brief_unreadable: {
     message: ({ brief }) => `${brief} is not a readable file`,
     resolve: () => "pass the path of the task's brief, a file you can read",
+  },
+  plan_unreadable: {
+    message: ({ plan }) => `${plan} is not a readable file`,
+    resolve: () => "pass the path of the task's plan, a file you can read, or leave --plan out",
   },
   name_taken: {
     message: ({ name, state }) => `the store already holds a task named ${name}, ${state}`,
@@ -87,18 +101,62 @@ const refuse = refusals<{
     message: ({ name }) => `the store holds no task named ${name}`,
     resolve: ({ name }) => actFor(USAGE.start, name),
   },
+  blocked: {
+    message: ({ name, after }) => `${name} waits after ${after.join(", ")}, which the store still holds`,
+    resolve: ({ name, after }) =>
+      `${after.map((other) => actFor(USAGE.done, other)).join("; ")} once each has landed, or ${actFor(USAGE.wait, name)} to wait after fewer`,
+  },
 });
 
 function refuseByState(act: Act, name: string, task: Task | null) {
   if (task === null) return refuse("unknown_task", { name, act });
   const admits = admitted(name, task.state);
-  if (act === "start") return refuse("name_taken", { name, state: task.state, admits });
+  if (act === "add" || act === "start") return refuse("name_taken", { name, state: task.state, admits });
   return refuse("wrong_state", { name, act, state: task.state, admits });
 }
 
 function parseName(name: string): TaskName {
   if (!isTaskName(name)) throw refuse("invalid_name", { name });
   return name;
+}
+
+function heldNames(store: Store, act: Act, names: readonly string[]): readonly TaskName[] {
+  return names.map((raw) => {
+    const name = parseName(raw);
+    if (taskByName(store, name) === null) throw refuse("unknown_task", { name, act });
+    return name;
+  });
+}
+
+export type AddRequest = {
+  readonly name: string;
+  readonly repo: string;
+  readonly goal: string;
+  readonly plan: string | null;
+  readonly priority: Priority | null;
+  readonly after: readonly string[];
+  readonly waits: string | null;
+};
+
+export function add({ store, processEnv, now }: Context, request: AddRequest): Queued {
+  const name = parseName(request.name);
+  const repo = mainWorkingTree(request.repo, processEnv);
+  if (request.plan !== null && !permits(request.plan, constants.R_OK))
+    throw refuse("plan_unreadable", { plan: request.plan });
+  const plan = request.plan === null ? null : realpathSync(request.plan);
+  const after = heldNames(store, "add", request.after);
+  const task = {
+    name,
+    repo,
+    goal: request.goal,
+    plan,
+    priority: request.priority,
+    waits: request.waits,
+    after,
+  };
+  const queued = replaceQueued(store, task) ?? insertQueued(store, { ...task, added: now().toISOString() });
+  if (queued === null) throw refuseByState("add", name, taskByName(store, name));
+  return queued;
 }
 
 export type StartRequest = {
@@ -108,29 +166,60 @@ export type StartRequest = {
   readonly session: string | null;
 };
 
+const UNQUEUED = { goal: null, plan: null, priority: null, waits: null };
+
 export function start({ store, processEnv, now }: Context, request: StartRequest): Running {
   const name = parseName(request.name);
   const repo = mainWorkingTree(request.repo, processEnv);
   const briefSha = blobSha(request.brief, processEnv);
   if (briefSha === null) throw refuse("brief_unreadable", { brief: request.brief });
   const brief = realpathSync(request.brief);
+  const after = heldAfter(store, name);
+  if (after.length > 0) throw refuse("blocked", { name, after });
   const started = now().toISOString();
   const task = { name, repo, brief, briefSha, session: request.session, started };
-  const running = startQueued(store, task) ?? insertRunning(store, { ...task, added: started });
+  const running = startQueued(store, task) ?? insertRunning(store, { ...task, ...UNQUEUED, added: started });
   if (running === null) throw refuseByState("start", name, taskByName(store, name));
   return running;
 }
 
+export type WaitRequest = {
+  readonly name: string;
+  readonly after: readonly string[];
+  readonly waits: string | null;
+};
+
+export function wait({ store }: Context, request: WaitRequest): Task {
+  const name = parseName(request.name);
+  const after = heldNames(store, "wait", request.after);
+  const waiting = setWaiting(store, name, { after, waits: request.waits });
+  if (waiting === null) throw refuseByState("wait", name, taskByName(store, name));
+  return waiting;
+}
+
 type Listed = Running & { readonly briefChanged: boolean };
 
-export type Listing = { readonly tasks: readonly Listed[]; readonly ready: readonly Queued[] };
+export type Listing = {
+  readonly tasks: readonly Listed[];
+  readonly ready: readonly Queued[];
+  readonly waiting: readonly Queued[];
+};
+
+function waitsForNothing(task: Queued): boolean {
+  return task.after.length === 0 && task.waits === null;
+}
 
 export function list({ store, processEnv }: Context): Listing {
   const tasks = startedTasks(store).map((task) => ({
     ...task,
     briefChanged: blobSha(task.brief, processEnv) !== task.briefSha,
   }));
-  return { tasks, ready: queuedTasks(store) };
+  const queued = queuedTasks(store);
+  return {
+    tasks,
+    ready: queued.filter(waitsForNothing),
+    waiting: queued.filter((task) => !waitsForNothing(task)),
+  };
 }
 
 export function stop({ store }: Context, raw: string): Queued {

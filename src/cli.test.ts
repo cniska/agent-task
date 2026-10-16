@@ -29,7 +29,9 @@ describe("the cli", () => {
     const listed = JSON.parse(run.stdout);
     expect(listed).toMatchObject({ command: "agent-task", ok: true });
     expect(listed.result.commands.map(({ name }: { name: string }) => name)).toEqual([
+      "add",
       "start",
+      "wait",
       "list",
       "stop",
       "done",
@@ -40,7 +42,7 @@ describe("the cli", () => {
   test("prints a result as one JSON line naming the command, exit 0", () => {
     expect(cli("list")).toEqual({
       status: 0,
-      stdout: '{"command":"list","ok":true,"result":{"tasks":[],"ready":[]}}\n',
+      stdout: '{"command":"list","ok":true,"result":{"tasks":[],"ready":[],"waiting":[]}}\n',
       stderr: "",
     });
   });
@@ -72,14 +74,22 @@ describe("the cli", () => {
         kind: "usage",
         code: "unknown_command",
         message: "frobnicate is not an agent-task command; agent-task with no command lists them",
-        meta: { name: "frobnicate", usage: "agent-task start|list|stop|done|doctor|--version" },
-        resolve: "agent-task start|list|stop|done|doctor|--version",
+        meta: { name: "frobnicate", usage: "agent-task add|start|wait|list|stop|done|doctor|--version" },
+        resolve: "agent-task add|start|wait|list|stop|done|doctor|--version",
       },
     });
   });
 
   test("refuses a command's misused arguments as a usage error naming its usage", () => {
     for (const args of [
+      ["add", "a", "--repo", "."],
+      ["add", "a", "--repo", ".", "--goal", "g", "--after", "a"],
+      ["add", "a", "--repo", ".", "--goal", "g", "--priority", "top"],
+      ["add", "a", "--repo", ".", "--goal", "g", "--after", ""],
+      ["add", "a", "--repo", ".", "--goal", "g", "--plan"],
+      ["wait"],
+      ["wait", "a", "--after", "a"],
+      ["wait", "a", "--waits", " "],
       ["start", "a"],
       ["start", "a", "b", "--repo", ".", "--brief", "x"],
       ["list", "extra"],

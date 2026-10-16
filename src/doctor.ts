@@ -1,7 +1,8 @@
-import { accessSync, constants, statSync } from "node:fs";
+import { constants, statSync } from "node:fs";
 import { join } from "node:path";
 import { unreachable } from "./assert";
 import { CodedError } from "./coded-error";
+import { permits } from "./file";
 import { mainWorkingTree, type ProcessEnv } from "./git";
 import {
   closeStore,
@@ -58,16 +59,6 @@ function refused<T>(probe: () => T, codes: readonly string[]): T | CodedError {
   }
 }
 
-function permits(file: string, mode: number): boolean {
-  if (statSync(file, { throwIfNoEntry: false })?.isFile() !== true) return false;
-  try {
-    accessSync(file, mode);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function lookUp(program: string, searchPath: readonly string[]): string | null {
   return searchPath.map((dir) => join(dir, program)).find((file) => permits(file, constants.X_OK)) ?? null;
 }
@@ -102,7 +93,12 @@ function storeHealth(path: string, read: Read | CodedError): Health {
     return { name: "store", state: "fail", detail: read.message, fix: read.resolve };
   switch (read.kind) {
     case "none":
-      return { name: "store", state: "ok", detail: `no store at ${path} yet; start creates it`, fix: null };
+      return {
+        name: "store",
+        state: "ok",
+        detail: `no store at ${path} yet; add or start creates it`,
+        fix: null,
+      };
     case "migratable":
       return {
         name: "store",
@@ -148,13 +144,27 @@ function briefHealth(task: Running): Health {
   };
 }
 
+function planHealth(task: Task): readonly Health[] {
+  if (task.plan === null) return [];
+  const name = `${task.name} plan`;
+  if (permits(task.plan, constants.R_OK))
+    return [{ name, state: "ok", detail: `${task.plan} is readable`, fix: null }];
+  return [
+    {
+      name,
+      state: "warn",
+      detail: `${task.plan} is not a readable file`,
+      fix: `put the plan back at ${task.plan}, or ${actFor(USAGE.add, task.name)} again with another --plan or none`,
+    },
+  ];
+}
+
 function taskHealth(store: Store, processEnv: ProcessEnv, gitFound: boolean): readonly Health[] {
   try {
     const started = startedTasks(store);
-    const repositories = [...started, ...queuedTasks(store)].map((task) =>
-      repositoryHealth(task, processEnv, gitFound),
-    );
-    return [...repositories, ...started.map(briefHealth)];
+    const tasks = [...started, ...queuedTasks(store)];
+    const repositories = tasks.map((task) => repositoryHealth(task, processEnv, gitFound));
+    return [...repositories, ...started.map(briefHealth), ...tasks.flatMap(planHealth)];
   } finally {
     closeStore(store);
   }
