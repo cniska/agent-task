@@ -1,0 +1,28 @@
+{
+  "name": "agent-task",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "agent-task": "./bin/agent-task"
+  },
+  "scripts": {
+    "format": "bunx biome check --write src acceptance scripts",
+    "lint": "bunx biome check --error-on-warnings src acceptance scripts",
+    "typecheck": "bunx tsc --noEmit",
+    "test": "bun test",
+    "acceptance": "bun test ./acceptance/*.acceptance.ts",
+    "knip": "bunx --bun knip",
+    "check": "bun run lint && bun run typecheck && bun run knip && bun test",
+    "prepare": "! git rev-parse --git-dir >/dev/null 2>&1 || git config core.hooksPath .githooks"
+  },
+  "devDependencies": {
+    "@babel/parser": "^7.29.9",
+    "@babel/types": "^7.29.8",
+    "@biomejs/biome": "^2.5.14",
+    "@types/bun": "^1.4.2",
+    "knip": "6.39.0",
+    "typescript": "^7.0.2"
+  }
+}

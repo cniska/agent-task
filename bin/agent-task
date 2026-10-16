@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+checkout=$(cd "$(dirname "$(realpath "$0")")/.." && pwd)
+bun=$(mise which -C "$checkout" bun)
+exec "$bun" "$checkout/src/cli.ts" "$@"

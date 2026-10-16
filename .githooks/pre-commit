@@ -1,0 +1,15 @@
+#!/bin/sh
+# agent-gate:githooks:2
+set -eu
+
+steps="$(dirname "$0")/pre-commit.d"
+
+run() {
+  [ -f "$1" ] && [ -x "$1" ] || return 0
+  "$1" || exit $?
+}
+
+run "$steps/format"
+for step in "$steps"/*; do
+  [ "$step" = "$steps/format" ] || run "$step"
+done
