@@ -16,6 +16,14 @@ mise trust && mise install
 
 `mise install` installs Bun and the dependencies. In the clone it also links `agent-task` into `~/.bun/bin` with `bun link`; in a worktree it does not, so removing a worktree never leaves the command pointing at a deleted checkout. Add that directory to your `PATH` if it is not there yet.
 
+Then, for Claude Code, install the plugin from the `cniska` marketplace:
+
+```bash
+claude plugin install cniska-task@cniska
+```
+
+The plugin brings neither Bun nor the CLI, and does nothing until `agent-task` is on `PATH`. Its hooks also need `jq` and `realpath`.
+
 ## Commands
 
 Each command prints one JSON line: a result on stdout, or an error on stderr naming the act that resolves it.
@@ -29,6 +37,15 @@ Each command prints one JSON line: a result on stdout, or an error on stderr nam
 | `agent-task --version` | Print the version alone on one line, not as JSON |
 
 `done` and `drop` are final, and a name stays taken after either.
+
+## Claude Code plugin
+
+The `cniska-task` plugin, in `plugin/`, keeps a running task's brief from changing under the task, and reads the store only through the CLI:
+
+- Before each `Edit`, `Write` or `MultiEdit`, it denies an edit to a file that is the brief of a running task. The denial names the task and what to do, in order: `agent-task drop <name> --reason <text>`, then the edit, then `agent-task start <new-name> --repo <repo> --brief <file>` under a name the store has never held. A brief that is gone is still matched by its path. Every other edit passes without a word.
+- When a session starts, resumes, clears or compacts in a working directory that holds the brief of a running task, it puts the running tasks in the session's context as `list` prints them, `briefChanged` included. Elsewhere it prints nothing.
+
+A hook prints nothing and denies nothing when `agent-task` is not on `PATH` or `list` is refused, and never exits with an error. Without `jq` or `realpath` it leaves a note on stderr.
 
 ## Development
 

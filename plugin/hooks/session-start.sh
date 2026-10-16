@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+source "${BASH_SOURCE[0]%/*}/tasks.sh"
+
+readonly UNREAD="the session was not told which tasks are running"
+readonly HEADING="cniska-task: the running tasks, as agent-task list prints them:"
+readonly CLOSING="A running task's brief does not change under it: the plugin denies an edit to one, naming agent-task drop, the edit and agent-task start under a new name."
+
+working_directory() {
+  jq -r '.cwd // ""' 2>/dev/null
+}
+
+context() {
+  jq -c --arg dir "$1/" --arg heading "$HEADING" --arg closing "$CLOSING" '
+    select(any(.result.tasks[]; .brief | startswith($dir)))
+    | {
+        hookSpecificOutput: {
+          hookEventName: "SessionStart",
+          additionalContext: ([$heading, (.result | tojson), $closing] | join("\n"))
+        }
+      }' 2>/dev/null
+}
+
+main() {
+  prerequisites "$UNREAD" || return 0
+  local cwd
+  if ! cwd="$(hook_input | working_directory)"; then
+    note "the hook input did not parse as JSON, so $UNREAD"
+    return 0
+  fi
+  [ -d "$cwd" ] || return 0
+  local real
+  real="$(realpath "$cwd" 2>/dev/null)" || return 0
+  local tasks
+  tasks="$(running_tasks)" || return 0
+  context "$real" <<<"$tasks"
+}
+
+main
+exit 0

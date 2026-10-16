@@ -6,9 +6,9 @@ This document states what must hold, not how. [`README.md`](README.md) has the i
 
 ## 1. Purpose & context
 
-Coding agents run in parallel on one machine, each on a task started from a brief, a file of instructions for that task. agent-task records each task while it runs: its name, the repository the work lands in, the brief's path, and the git blob sha of the brief's content when the work started. It refuses a second task under a name already used, lists the running tasks and flags one whose brief no longer has that sha or is gone or unreadable, closes a task only once its commits are on origin's default branch, and drops a task whose work was given up.
+Coding agents run in parallel on one machine, each on a task started from a brief, a file of instructions for that task. agent-task records each task while it runs: its name, the repository the work lands in, the brief's path, and the git blob sha of the brief's content when the work started. It refuses a second task under a name already used, lists the running tasks and flags one whose brief no longer has that sha or is gone or unreadable, closes a task only once its commits are on origin's default branch, and drops a task whose work was given up. The `cniska-task` Claude Code plugin keeps a running task's brief from changing under it, by denying an edit to that brief, and puts the running tasks in a session's context where the session's working directory holds one of their briefs.
 
-**Primary user:** whoever runs coding-agent tasks in parallel on one machine, a person or an agent, and the agents doing those tasks, through the CLI. agent-task depends on git alone; it reads no other tool's data, and every command works where no other tool is installed.
+**Primary user:** whoever runs coding-agent tasks in parallel on one machine, a person or an agent, and the agents doing those tasks, through the CLI and the plugin. agent-task depends on git alone; it reads no other tool's data, and every command works where no other tool is installed.
 
 ## 2. Functional requirements
 
@@ -50,6 +50,12 @@ Coding agents run in parallel on one machine, each on a task started from a brie
 - **FR-16** — No command, or `--help`, prints one JSON line `{"command":"agent-task","ok":true,"result":{"commands":[...],"flags":[...]}}` listing each command's and flag's name, usage and summary, and exits 0.
 - **FR-17** — A result is one JSON line on stdout, `{"command":<name>,"ok":true,"result":<value>}`, with exit 0. An error is one JSON line on stderr, `{"command":<name>,"ok":false,"error":{"kind","code","message","meta","resolve"}}`, where `resolve` names the act that resolves it; the exit is 1 for a refusal, 2 for a usage error and 3 for a fault. An unknown command is the usage error `unknown_command`, and a command given a missing, empty, extra or unknown argument is the usage error `bad_arguments`.
 
+### 2.8 The Claude Code plugin
+
+- **FR-18** — Before each `Edit`, `Write` or `MultiEdit`, the `cniska-task` plugin reads the running tasks with `list` and denies the edit when the file it names, resolved to its real path, is the brief of a running task. The denial names the file and the task, says a running task's brief does not change under it, and names the acts in order: `agent-task drop <name> --reason <text>`, then the edit, then `agent-task start <new-name> --repo <repo> --brief <file>` under a name the store has never held, since a dropped name stays taken (FR-9). A brief that is gone, with or without its directory, is still matched by its path, so writing it back is denied too. An edit to a file no running task names as its brief passes without a word.
+- **FR-19** — When a session starts, resumes, clears or compacts in a working directory that holds the brief of a running task, the plugin puts the running tasks in the session's context as `list` prints them, `briefChanged` included, with a line saying the plugin denies an edit to a running task's brief. Elsewhere it prints nothing.
+- **FR-20** — A hook prints nothing and denies nothing when `agent-task` is not on `PATH`, when `list` is refused, such as `store_version`, or when the hook's input names no file or no directory, and it exits 0 in every case; the hooks deny nothing but the edit FR-18 names. Without `jq` or `realpath` on `PATH`, a hook leaves a note on stderr and nothing else.
+
 ## 3. Non-functional requirements
 
 - **NF-1** — The tests never read or write the real home: `HOME` and the XDG directories point at scratch directories.
@@ -82,14 +88,19 @@ Coding agents run in parallel on one machine, each on a task started from a brie
 - **AC-15** — An unknown command, and `start` with no `--brief`: exit 2, nothing on stdout, `unknown_command` naming it and `bad_arguments` with the usage as the act; a refusal exits 1. (FR-17)
 - **AC-16** — The test environment's `HOME` and XDG directories are scratch directories, not the account's. (NF-1)
 - **AC-17** — With only git on `PATH`: `start`, `list`, `done` and `drop` each succeed. (NF-3)
+- **AC-18** — Run the `PreToolUse` hook as `hooks.json` registers it, from the plugin `plugin.json` names `cniska-task`, with only a shell, bash, git, `jq`, `realpath` and `agent-task` on `PATH`, with `task-a` running on a brief: an `Edit`, a `Write` and a `MultiEdit` naming the brief, by its absolute path and by a path relative to the hook's working directory: each denied, the reason naming the brief, `agent-task drop task-a --reason`, the edit and `agent-task start` under a new name; a `Write` to the brief's path after the brief is deleted, and after its directory is deleted: denied; naming another file in the same directory, a file that does not exist, and a relative path with no `cwd` in the input: exit 0 printing nothing. (FR-18, FR-20)
+- **AC-19** — Run the `SessionStart` hook as `hooks.json` registers it, with the same `PATH`, with two tasks running on briefs under one directory, one brief amended since: from that directory and from its parent, exit 0 printing the context with both tasks as `list` prints them, the amended one flagged; from a sibling directory with no brief, from the directory of a dropped task's brief, and from a directory that does not exist: exit 0 printing nothing. The hooks file matches the edit hook on `Edit|Write|MultiEdit` and the session hook on the four session sources. (FR-19, FR-20)
+- **AC-20** — With a store of another schema version, as AC-12 sets up: the `PreToolUse` hook on the brief and the `SessionStart` hook from its directory each exit 0 printing nothing; with no `agent-task` on `PATH`: the same. (FR-20)
 
 ## 6. Deliverables
 
 - **D-1** — The `agent-task` CLI, run by Bun from a checkout through `bin/agent-task` and linked onto `PATH` by `mise install` in the primary checkout.
 - **D-2** — `README.md`, `AGENTS.md`, `src/README.md` and this spec.
-- **D-3** — The test suite, run by `bun run check`, and the acceptance suite, run by `bun run acceptance`, whose test names cite the criteria in §5.
+- **D-3** — The test suite, run by `bun run check`, and the acceptance suite, run by `bun run acceptance`, whose test names cite the criteria in §5. The acceptance suite drives the CLI, and the plugin's hooks as its `hooks.json` registers them, from outside.
+- **D-4** — The `cniska-task` Claude Code plugin in `plugin/`.
 
 ## 7. Constraints (fixed)
 
 - **C-1** — TypeScript on Bun, which mise installs, with SQLite through Bun's own driver.
 - **C-2** — git is the one program agent-task runs.
+- **C-3** — The plugin brings neither Bun nor the CLI. Its hooks are shell that runs with a POSIX shell, bash, `jq`, `realpath` and `agent-task` alone, and they read the store only through the CLI.

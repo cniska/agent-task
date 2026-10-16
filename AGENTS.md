@@ -6,7 +6,7 @@ Records the coding-agent tasks running on one machine, from start until their co
 
 - `bun run check` is the check: lint, typecheck, knip (unused exports, files and dependencies) and tests. It passes before every commit.
 - The tests call the domain in process against a scratch store and throwaway git repos, and assert on return values and refusal codes. Among them only `src/cli.test.ts` spawns the CLI, and it pins only the wiring: the listing, exit codes and the output format. Fixtures copy a format, never real data.
-- `bun run acceptance` proves SPEC.md's criteria: each test in `acceptance/*.acceptance.ts` drives the CLI alone in a scratch home, and its name starts with the criteria it proves. `src/spec.test.ts`, part of the check, fails when a criterion has no test, a test is a todo or skipped, a test cites none, or a requirement no criterion cites.
+- `bun run acceptance` proves SPEC.md's criteria: each test in `acceptance/*.acceptance.ts` drives the CLI, or the plugin's hooks as its `hooks.json` registers them, in a scratch home, and its name starts with the criteria it proves. `src/spec.test.ts`, part of the check, fails when a criterion has no test, a test is a todo or skipped, a test cites none, or a requirement no criterion cites.
 - A refusal is a coded error that names what was refused, its cause and the act that resolves it, and a rerun after that act converges. State is read from the store, the filesystem and git on every command, never remembered.
 - No test waits real time: the clock is passed in from the entry.
 - Fix the cause, never work around it, and add no debt. Debt you find is fixed where it is found.
