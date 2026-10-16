@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { version } from "../package.json";
 import { COMMANDS } from "./cli-commands";
-import { type Command, usageError } from "./cli-contract";
+import { type Command, type Runtime, usageError } from "./cli-contract";
 import { exitWithError, exitWithResult, exitWithVersion } from "./cli-output";
 
 const PROGRAM = "agent-task";
@@ -10,7 +10,21 @@ const VERSION_FLAG = "--version";
 
 const VERSION_USAGE = `${PROGRAM} ${VERSION_FLAG}`;
 
+const BUSY_WAIT_MS = 5000;
+
 const FLAGS = [{ name: VERSION_FLAG, usage: VERSION_USAGE, summary: "print the version alone on one line" }];
+
+function blankToNull(value: string | undefined): string | null {
+  return value === undefined || value.trim() === "" ? null : value;
+}
+
+const runtime: Runtime = {
+  cwd: process.cwd(),
+  env: { home: blankToNull(process.env.HOME), dataHome: blankToNull(process.env.XDG_DATA_HOME) },
+  processEnv: process.env,
+  busyWaitMs: BUSY_WAIT_MS,
+  now: () => new Date(),
+};
 
 const [name, ...args] = process.argv.slice(2);
 
@@ -42,7 +56,7 @@ if (command === undefined)
 
 function ranOrExited(command: Command): unknown {
   try {
-    return command.run(args);
+    return command.run(args, runtime);
   } catch (error) {
     return exitWithError(command.name, error);
   }

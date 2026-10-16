@@ -47,7 +47,7 @@ export function recordOf(error: unknown): ErrorRecord {
   return {
     kind: "fault",
     code: "unexpected",
-    message: error instanceof Error ? error.message : String(error),
+    message: messageOf(error),
     meta: {},
     resolve: BUG,
   };
@@ -77,3 +77,7 @@ export const usageErrors = coder("usage");
 export const refusals = coder("refusal");
 
 export const faults = coder("fault");
+
+export function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}

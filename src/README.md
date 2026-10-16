@@ -17,11 +17,17 @@ Another module reaches a module only through its bare-named file, so `cli`'s par
 
 | Prefix | Responsibility |
 | --- | --- |
-| `cli` | The `agent-task` command line |
+| `cli` | The `agent-task` command line, over the domain below |
+| `tasks` | The domain: `start`, `list`, `done` and `drop`, the `invalid_name` refusal of a name, and the commands each state admits, which every state refusal names |
+| `store` | The SQLite store: opening it, its schema and version, the `TaskName` type and its kebab-case rule, and the statements that insert, end and read tasks, returning the row or `null` |
+| `git` | Run git and read what it prints: a path's main working tree, a file's blob sha, origin's default branch and whether a commit is reachable from it; the only module that starts a process |
+| `paths` | The data directory and the store's path, from the environment the entry passes in |
 | `coded-error` | Usage errors, refusals and faults with a code, their facts and the act that resolves them, and the exit status of each kind |
 | `assert` | `unreachable` and `invariant`, faults that name a bug |
 
 ## Where to start
 
 - `cli-commands.ts` lists the commands and what each calls.
+- `tasks.ts` holds a task's states and the refusal each act meets in each.
+- `repo.test-support.ts` builds the throwaway repositories and origins the tests run against.
 - `spec.test.ts` ties [`../SPEC.md`](../SPEC.md)'s criteria to the acceptance suite in `../acceptance`, which drives the CLI alone; `syntax.test-support.ts` walks a source file's syntax for it and for `modules.test.ts`.

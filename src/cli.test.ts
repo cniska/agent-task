@@ -1,24 +1,52 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
+import { removeScratchDirs, scratchDir } from "./repo.test-support";
 
 const CLI = resolve(import.meta.dir, "cli.ts");
 
+const dataHome = scratchDir();
+
+afterAll(removeScratchDirs);
+
 function cli(...args: string[]) {
-  const run = spawnSync(process.execPath, [CLI, ...args], { encoding: "utf8" });
+  const run = spawnSync(process.execPath, [CLI, ...args], {
+    encoding: "utf8",
+    env: { ...process.env, XDG_DATA_HOME: dataHome },
+  });
   return { status: run.status, stdout: run.stdout, stderr: run.stderr };
 }
 
 describe("the cli", () => {
-  test("prints the listing as one JSON line naming the program", () => {
+  test("prints the listing as one JSON line naming the program and each command", () => {
     const run = cli();
     expect([run.status, run.stderr]).toEqual([0, ""]);
-    expect(run.stdout.endsWith("}\n")).toBe(true);
     expect(run.stdout.split("\n")).toHaveLength(2);
-    expect(JSON.parse(run.stdout)).toMatchObject({
-      command: "agent-task",
-      ok: true,
-      result: { commands: [] },
+    const listed = JSON.parse(run.stdout);
+    expect(listed).toMatchObject({ command: "agent-task", ok: true });
+    expect(listed.result.commands.map(({ name }: { name: string }) => name)).toEqual([
+      "start",
+      "list",
+      "done",
+      "drop",
+    ]);
+  });
+
+  test("prints a result as one JSON line naming the command, exit 0", () => {
+    expect(cli("list")).toEqual({
+      status: 0,
+      stdout: '{"command":"list","ok":true,"result":{"tasks":[]}}\n',
+      stderr: "",
+    });
+  });
+
+  test("exits 1 with one JSON line on stderr for a refusal", () => {
+    const run = cli("drop", "no-such-task", "--reason", "gone");
+    expect([run.status, run.stdout]).toEqual([1, ""]);
+    expect(JSON.parse(run.stderr)).toMatchObject({
+      command: "drop",
+      ok: false,
+      error: { kind: "refusal", code: "unknown_task", meta: { name: "no-such-task", act: "drop" } },
     });
   });
 
@@ -32,9 +60,24 @@ describe("the cli", () => {
         kind: "usage",
         code: "unknown_command",
         message: "frobnicate is not an agent-task command; agent-task with no command lists them",
-        meta: { name: "frobnicate", usage: "agent-task --version" },
-        resolve: "agent-task --version",
+        meta: { name: "frobnicate", usage: "agent-task start|list|done|drop|--version" },
+        resolve: "agent-task start|list|done|drop|--version",
       },
     });
+  });
+
+  test("refuses a command's misused arguments as a usage error naming its usage", () => {
+    for (const args of [
+      ["start", "a"],
+      ["start", "a", "b", "--repo", ".", "--brief", "x"],
+      ["list", "extra"],
+      ["done", "a"],
+      ["done", "a", "--commit", ""],
+      ["drop", "a", "--reason", " "],
+      ["drop", "a", "--force"],
+    ]) {
+      const run = cli(...args);
+      expect([args, run.status, JSON.parse(run.stderr).error.code]).toEqual([args, 2, "bad_arguments"]);
+    }
   });
 });
