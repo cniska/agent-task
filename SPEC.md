@@ -1,20 +1,20 @@
 # agent-task Specification
 
-> The running tasks a coordinator of coding agents holds, recorded so they can be listed, checked against their briefs and closed against what landed.
+> The coding-agent tasks running on one machine, recorded so they can be listed, checked against their briefs and closed against what landed.
 
 This document states what must hold, not how. [`README.md`](README.md) has the install and the commands, and [`src/README.md`](src/README.md) maps the modules that meet these requirements.
 
 ## 1. Purpose & context
 
-A coordinator runs several coding agents at once, each on a task described by a brief, a markdown file in the coordinator's own repository. agent-task records each task while it runs: the repository the work lands in, the brief, and the brief's content when the work started. It refuses a second task under a name already used, lists the running tasks and flags one whose brief changed under its worker, closes a task only once its commits are on origin's default branch, and drops a task whose worker died or whose work was given up.
+Coding agents run in parallel on one machine, each on a task started from a brief, a file of instructions for that task. agent-task records each task while it runs: its name, the repository the work lands in, the brief's path, and the git blob sha of the brief's content when the work started. It refuses a second task under a name already used, lists the running tasks and flags one whose brief no longer has that sha or is gone or unreadable, closes a task only once its commits are on origin's default branch, and drops a task whose work was given up.
 
-**Primary user:** a coordinator agent and the agents it runs, through the CLI, on one machine. agent-task depends on git alone; it reads no other tool's data, and every command works where no other tool is installed.
+**Primary user:** whoever runs coding-agent tasks in parallel on one machine, a person or an agent, and the agents doing those tasks, through the CLI. agent-task depends on git alone; it reads no other tool's data, and every command works where no other tool is installed.
 
 ## 2. Functional requirements
 
 ### 2.1 The store
 
-- **FR-1** — Tasks live in one SQLite database, `$XDG_DATA_HOME/agent-task/tasks.db`, created with its directory on first use. The store is machine-local; briefs stay where the coordinator keeps them.
+- **FR-1** — Tasks live in one SQLite database, `$XDG_DATA_HOME/agent-task/tasks.db`, created with its directory on first use. The store is machine-local and holds a brief's path and sha, never the brief itself, which stays where it is.
 - **FR-2** — An `XDG_DATA_HOME` that is unset, empty or not an absolute path counts as `$HOME/.local/share`.
 - **FR-3** — A task's name is unique in the store by a database constraint, so of several `start`s of one name at once, exactly one succeeds and the rest are refused `name_taken`.
 - **FR-4** — A store of another schema version is refused `store_version` and left as it is.
@@ -59,7 +59,7 @@ A coordinator runs several coding agents at once, each on a task described by a 
 ## 4. Out of scope
 
 - Worktrees: agent-task never creates, reads or checks one; a task may share its worktree's name.
-- The session record, the ledger's prose and a backlog of work not yet started.
+- A record of agent sessions, notes on how a task is going, and a backlog of work not yet started.
 - Showing one task, listing done or dropped tasks, who acted, experiments, dependencies, priority and a UI.
 - A release build, an installer and packages.
 

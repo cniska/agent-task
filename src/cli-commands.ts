@@ -113,7 +113,7 @@ const doneCommand: Command = {
 const dropCommand: Command = {
   name: "drop",
   usage: USAGE.drop,
-  summary: "close a running task whose work was given up or whose worker died",
+  summary: "close a running task whose work was given up",
   run(args, runtime) {
     const { positionals, values } = parsed(this, args, { reason: { type: "string" } });
     const name = oneName(this, positionals);

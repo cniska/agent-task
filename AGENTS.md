@@ -1,6 +1,6 @@
 # agent-task
 
-Records the running tasks a coordinator of coding agents holds. [`SPEC.md`](SPEC.md) states what must hold and is the source of truth; it changes in the same commit as the behavior it describes. [`README.md`](README.md) has the install and the commands, and [`src/README.md`](src/README.md) maps the modules and the boundaries between them.
+Records the coding-agent tasks running on one machine, from start until their commits land or they are dropped. [`SPEC.md`](SPEC.md) states what must hold and is the source of truth; it changes in the same commit as the behavior it describes. [`README.md`](README.md) has the install and the commands, and [`src/README.md`](src/README.md) maps the modules and the boundaries between them.
 
 ## Rules
 
