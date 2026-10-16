@@ -21,6 +21,6 @@ hook_input() {
   printf '%s' "$input"
 }
 
-running_tasks() {
+listed_tasks() {
   agent-task list 2>/dev/null
 }

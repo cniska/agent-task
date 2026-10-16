@@ -82,7 +82,7 @@ function managesATask(w: World, path: string): void {
 }
 
 test(
-  "AC-28 the release binary, alone on PATH with git, prints its version and runs start, list, done and doctor",
+  "AC-29 the release binary, alone on PATH with git, prints its version and runs start, list, done and doctor",
   () => {
     const w = world();
     const binary = compiledBinary(w, join(w.root, "build"));
@@ -99,7 +99,7 @@ test(
 );
 
 test(
-  "AC-29 install.sh installs the latest release after checking its checksum, and installs nothing from a bad download",
+  "AC-30 install.sh installs the latest release after checking its checksum, and installs nothing from a bad download",
   () => {
     const w = world();
     const assets = releaseAssets(w, join(w.root, "assets"), compiledBinary(w, join(w.root, "build")), TARGET);
@@ -149,7 +149,7 @@ test(
 );
 
 test(
-  "AC-30 the npm package runs its platform's binary with no runtime on PATH, and refuses on another platform and when the platform package is missing or cannot start",
+  "AC-31 the npm package runs its platform's binary with no runtime on PATH, and refuses on another platform and when the platform package is missing or cannot start",
   () => {
     const w = world();
     const assets = releaseAssets(w, join(w.root, "assets"), compiledBinary(w, join(w.root, "build")), TARGET);

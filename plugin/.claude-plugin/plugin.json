@@ -1,6 +1,6 @@
 {
   "name": "cniska-task",
-  "description": "Keeps a running agent-task brief from changing under its task: before each Edit, Write or MultiEdit it denies an edit to a running task's brief, naming stop, the edit and start again; and when a session starts, resumes, clears or compacts in a directory holding a running task's brief, it puts the running tasks in the session's context as agent-task list prints them. It needs the agent-task CLI on PATH and does nothing without it.",
+  "description": "Keeps an agent-task brief from changing under its task while the task runs or is in review: before each Edit, Write or MultiEdit it denies an edit to such a brief, naming stop, the edit and start again; and when a session starts, resumes, clears or compacts in a directory holding one, it puts the running and in-review tasks in the session's context as agent-task list prints them. It needs the agent-task CLI on PATH and does nothing without it.",
   "author": {
     "name": "Christoffer Niska"
   },

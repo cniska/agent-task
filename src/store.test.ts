@@ -13,6 +13,7 @@ import {
   readStore,
   removeTask,
   replaceQueued,
+  reviewTask,
   setWaiting,
   startedTasks,
   startQueued,
@@ -170,6 +171,24 @@ describe("the store", () => {
     expect(setWaiting(store, named("missing"), { after: [], waits: null })).toBeNull();
   });
 
+  test("takes only a running task to review, listing it among the started by start time", () => {
+    const store = freshStore();
+    insertRunning(store, RUNNING);
+    insertRunning(store, { ...RUNNING, name: named("b"), started: "2026-10-16T08:00:00.000Z" });
+    insertQueued(store, { ...QUEUED, name: named("c") });
+    const reviewed = { ...RUNNING, state: "review" as const, reviewed: "2026-10-16T12:00:00.000Z" };
+    expect(reviewTask(store, named("a"), reviewed.reviewed)).toEqual(reviewed);
+    expect(reviewTask(store, named("a"), "2026-10-16T13:00:00.000Z")).toBeNull();
+    expect(reviewTask(store, named("c"), reviewed.reviewed)).toBeNull();
+    expect(reviewTask(store, named("missing"), reviewed.reviewed)).toBeNull();
+    expect(taskByName(store, named("a"))).toEqual(reviewed);
+    expect(startedTasks(store).map(({ name, state }) => [name, state])).toEqual([
+      [named("b"), "running"],
+      [named("a"), "review"],
+    ]);
+    expect(stopTask(store, named("a"))).toEqual({ ...QUEUED, state: "queued" });
+  });
+
   test("stops only a running task back to queued, keeping its added time, and removes a task in any state", () => {
     const store = freshStore();
     insertRunning(store, RUNNING);
@@ -234,6 +253,8 @@ describe("the store", () => {
     expect(() => store.db.run("UPDATE tasks SET brief = NULL WHERE name = 'a'")).toThrow();
     expect(() => store.db.run("UPDATE tasks SET started_at = NULL WHERE name = 'a'")).toThrow();
     expect(() => store.db.run("UPDATE tasks SET state = 'done' WHERE name = 'a'")).toThrow();
+    expect(() => store.db.run("UPDATE tasks SET state = 'review' WHERE name = 'a'")).toThrow();
+    expect(() => store.db.run("UPDATE tasks SET reviewed_at = 'now' WHERE name = 'a'")).toThrow();
     expect(() => store.db.run("UPDATE tasks SET priority = 'top' WHERE name = 'a'")).toThrow();
     expect(() => store.db.run("INSERT INTO task_after VALUES ('nobody', 'a')")).toThrow();
     expect(() =>

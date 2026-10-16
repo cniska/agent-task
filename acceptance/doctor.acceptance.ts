@@ -41,7 +41,7 @@ function started(w: World, name: string, dir: string, file: string): void {
   expect(run(w, w.root, ["start", name, "--repo", dir, "--brief", file]).exitCode).toBe(0);
 }
 
-test("AC-25 doctor passes with no store and makes none, warns a version-1 store naming list, and fails one it cannot read, leaving each", () => {
+test("AC-26 doctor passes with no store and makes none, warns a version-1 store naming list, and fails one it cannot read, leaving each", () => {
   const w = world();
   const bin = binWith(w, PROGRAMS, true);
   const fresh = doctor(w, bin, 0);
@@ -88,7 +88,7 @@ test("AC-25 doctor passes with no store and makes none, warns a version-1 store 
   expect(readFileSync(path).equals(newer)).toBe(true);
 });
 
-test("AC-26 doctor without git on PATH fails git and leaves each task's repository unchecked", () => {
+test("AC-27 doctor without git on PATH fails git and leaves each task's repository unchecked", () => {
   const w = world();
   const dir = repo(w);
   started(w, "task-a", dir, brief(w.root));
@@ -99,7 +99,7 @@ test("AC-26 doctor without git on PATH fails git and leaves each task's reposito
   expect(printed.failing).toBe(1);
 });
 
-test("AC-27 doctor judges each task's repository, each running task's brief and each plan a task names, without contacting a remote", () => {
+test("AC-28 doctor judges each task's repository, each running or in-review task's brief and each plan a task names, without contacting a remote", () => {
   const w = world();
   const briefs = join(w.root, "briefs");
   mkdirSync(briefs);
@@ -129,6 +129,7 @@ test("AC-27 doctor judges each task's repository, each running task's brief and 
   started(w, "task-f", stopped, brief(briefs, "f.md"));
   expect(run(w, w.root, ["stop", "task-f"]).exitCode).toBe(0);
   rmSync(stopped, { recursive: true });
+  expect(run(w, w.root, ["review", "task-b"]).exitCode).toBe(0);
   const plan = brief(briefs, "plan.md", "# Plan\n");
   const lost = join(briefs, "lost.md");
   const add = (name: string, at: string, file: string) =>

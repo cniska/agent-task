@@ -4,7 +4,7 @@ import { removeScratch, world } from "./harness";
 
 afterEach(removeScratch);
 
-test("AC-20 the test environment's home and XDG directories are scratch directories", () => {
+test("AC-21 the test environment's home and XDG directories are scratch directories", () => {
   const account = userInfo().homedir;
   const scratch = [
     process.env.HOME,

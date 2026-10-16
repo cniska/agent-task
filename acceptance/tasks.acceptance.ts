@@ -188,6 +188,7 @@ test("AC-6 start refuses a running name, naming what it admits, starts a stopped
       state: "running",
       admits: [
         "agent-task wait running-one [--after <name>]... [--waits <text>]",
+        "agent-task review running-one",
         "agent-task stop running-one",
         "agent-task done running-one",
       ],
@@ -519,7 +520,61 @@ test("AC-14 list orders ready and waiting by priority with none last, then added
   ]);
 });
 
-test("AC-15 a store of a schema version this agent-task cannot read is refused and left as it is", () => {
+test("AC-15 review takes a running task to review with the time, keeps it listed and its brief frozen, refuses review again, of a queued or unknown name, and start of its name; wait sets its text; stop takes it back to queued forgetting the review time; done removes it", () => {
+  const w = world();
+  const dir = repo(w);
+  const file = brief(w.root);
+  const running = result(start(w, "task-a", dir, file));
+  const reviewed = result(run(w, w.root, ["review", "task-a"]));
+  expect(reviewed).toMatchObject({ ...running, state: "review" });
+  expect(Date.parse(String(reviewed.reviewed))).toBeGreaterThanOrEqual(Date.parse(String(running.started)));
+  expect(listed(w)).toEqual([{ ...reviewed, briefChanged: false }]);
+  expect(refusal(run(w, w.root, ["review", "task-a"]))).toMatchObject({
+    code: "wrong_state",
+    meta: {
+      name: "task-a",
+      act: "review",
+      state: "review",
+      admits: [
+        "agent-task wait task-a [--after <name>]... [--waits <text>]",
+        "agent-task stop task-a",
+        "agent-task done task-a",
+      ],
+    },
+  });
+  result(add(w, "task-b", dir, "b"));
+  expect(refusal(run(w, w.root, ["review", "task-b"]))).toMatchObject({
+    code: "wrong_state",
+    meta: { name: "task-b", act: "review", state: "queued" },
+  });
+  expect(refusal(run(w, w.root, ["review", "task-c"]))).toMatchObject({
+    code: "unknown_task",
+    meta: { name: "task-c", act: "review" },
+  });
+  expect(refusal(start(w, "task-a", dir, file))).toMatchObject({
+    code: "name_taken",
+    meta: { name: "task-a", state: "review" },
+  });
+  expect(result(run(w, w.root, ["wait", "task-a", "--waits", "the owner"]))).toEqual({
+    ...reviewed,
+    waits: "the owner",
+  });
+  expect(result(run(w, w.root, ["stop", "task-a"]))).toEqual({
+    name: "task-a",
+    state: "queued",
+    repo: dir,
+    ...UNQUEUED,
+    waits: "the owner",
+    added: running.added,
+    after: [],
+  });
+  const again = result(start(w, "task-a", dir, file));
+  result(run(w, w.root, ["review", "task-a"]));
+  expect(result(run(w, w.root, ["done", "task-a"]))).toMatchObject({ ...again, state: "review" });
+  expect(listed(w)).toEqual([]);
+});
+
+test("AC-16 a store of a schema version this agent-task cannot read is refused and left as it is", () => {
   const w = world();
   const path = storeOfVersion(w, 3);
   const before = readFileSync(path);
@@ -527,7 +582,7 @@ test("AC-15 a store of a schema version this agent-task cannot read is refused a
   expect(readFileSync(path).equals(before)).toBe(true);
 });
 
-test("AC-16 a version-1 store is migrated by the first command that opens it, keeping every running task and freeing the ended names", () => {
+test("AC-17 a version-1 store is migrated by the first command that opens it, keeping every running task and freeing the ended names", () => {
   const w = world();
   const dir = repo(w);
   const kept = brief(w.root, "kept.md");
@@ -575,13 +630,14 @@ test("AC-16 a version-1 store is migrated by the first command that opens it, ke
       .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
       .all(),
   ).toEqual([{ name: "task_after" }, { name: "tasks" }]);
+  expect(result(run(w, w.root, ["review", "old-a"]))).toMatchObject({ state: "review" });
   reopened.close();
   for (const name of ["old-done", "old-dropped"])
     expect(result(start(w, name, dir, kept))).toMatchObject({ name, state: "running" });
   expect(refusal(start(w, "old-a", dir, kept))).toMatchObject({ code: "name_taken" });
 });
 
-test("AC-21 every command runs with git as the only program on PATH, and doctor names the hooks' missing programs", () => {
+test("AC-22 every command runs with git as the only program on PATH, and doctor names the hooks' missing programs", () => {
   const w = world();
   const dir = repo(w);
   const file = brief(w.root);
@@ -592,6 +648,7 @@ test("AC-21 every command runs with git as the only program on PATH, and doctor 
     ["start", "task-a", "--repo", dir, "--brief", file],
     ["start", "task-b", "--repo", dir, "--brief", file, "--session", "s"],
     ["wait", "task-c", "--after", "task-a", "--waits", "w"],
+    ["review", "task-b"],
     ["list"],
     ["stop", "task-a"],
     ["done", "task-a"],

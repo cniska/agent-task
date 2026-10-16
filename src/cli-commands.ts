@@ -5,7 +5,7 @@ import { messageOf } from "./coded-error";
 import { DOCTOR_USAGE, doctor } from "./doctor";
 import { storePath } from "./paths";
 import { closeStore, isPriority, openStore } from "./store";
-import { add, type Context, done, list, start, stop, USAGE, wait } from "./tasks";
+import { add, type Context, done, list, review, start, stop, USAGE, wait } from "./tasks";
 
 type Flags = Readonly<Record<string, { readonly type: "string"; readonly multiple?: boolean }>>;
 
@@ -155,11 +155,21 @@ const waitCommand: Command = {
   },
 };
 
+const reviewCommand: Command = {
+  name: "review",
+  usage: USAGE.review,
+  summary: "record that a running task was handed back for review; its brief stays frozen until stop or done",
+  run(args, runtime) {
+    const name = oneName(this, parsed(this, args, {}).positionals);
+    return withContext(runtime, (context) => review(context, name));
+  },
+};
+
 const listCommand: Command = {
   name: "list",
   usage: USAGE.list,
   summary:
-    "list the running tasks, flagging each whose brief changed since it started, then the queued tasks ready to start and those waiting",
+    "list the running and in-review tasks, flagging each whose brief changed since it started, then the queued tasks ready to start and those waiting",
   run(args, runtime) {
     noArguments(this, parsed(this, args, {}).positionals);
     return withContext(runtime, (context) => list(context));
@@ -170,7 +180,7 @@ const stopCommand: Command = {
   name: "stop",
   usage: USAGE.stop,
   summary:
-    "take a running task back to queued, freeing its brief and keeping its goal, plan, priority and waits",
+    "take a running or in-review task back to queued, freeing its brief and keeping its goal, plan, priority and waits",
   run(args, runtime) {
     const name = oneName(this, parsed(this, args, {}).positionals);
     return withContext(runtime, (context) => stop(context, name));
@@ -207,6 +217,7 @@ export const COMMANDS: readonly Command[] = [
   addCommand,
   startCommand,
   waitCommand,
+  reviewCommand,
   listCommand,
   stopCommand,
   doneCommand,

@@ -3,7 +3,7 @@ set -uo pipefail
 
 source "${BASH_SOURCE[0]%/*}/tasks.sh"
 
-readonly UNJUDGED="the edit was not checked against the running tasks' briefs"
+readonly UNJUDGED="the edit was not checked against the running and in-review tasks' briefs"
 
 edited_file() {
   jq -r '
@@ -23,7 +23,7 @@ denial() {
           hookEventName: "PreToolUse",
           permissionDecision: "deny",
           permissionDecisionReason: (
-            "\($brief) is the brief of the running task \($holding | map(.name) | join(" and ")), and a running task'"'"'s brief does not change under it. To change it, in this order: "
+            "\($brief) is the brief of the \($holding | map("\(if .state == "review" then "in-review" else .state end) task \(.name)") | join(" and ")), and a task'"'"'s brief does not change under it while the task runs or is in review. To change it, in this order: "
             + ($holding | map("agent-task stop \(.name)") | join("; "))
             + "; then edit the brief; then "
             + ($holding | map("agent-task start \(.name) --repo \(.repo) --brief \(.brief) [--session <id>]") | join("; "))
@@ -54,7 +54,7 @@ main() {
   local real
   real="$(real_path "$file")"
   local tasks
-  tasks="$(running_tasks)" || return 0
+  tasks="$(listed_tasks)" || return 0
   denial "$real" <<<"$tasks"
 }
 

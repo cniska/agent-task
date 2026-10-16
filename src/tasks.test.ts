@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs
 import { join } from "node:path";
 import { brief, git, named, removeScratchDirs, repo, scratchDir } from "./repo.test-support";
 import { insertQueued, openStore, taskByName } from "./store";
-import { type AddRequest, add, type Context, done, list, start, stop, wait } from "./tasks";
+import { type AddRequest, add, type Context, done, list, review, start, stop, wait } from "./tasks";
 
 afterAll(removeScratchDirs);
 
@@ -241,12 +241,13 @@ describe("start", () => {
           state: "running",
           admits: [
             "agent-task wait running-one [--after <name>]... [--waits <text>]",
+            "agent-task review running-one",
             "agent-task stop running-one",
             "agent-task done running-one",
           ],
         },
         resolve:
-          "running-one is running, which admits: agent-task wait running-one [--after <name>]... [--waits <text>]; agent-task stop running-one; agent-task done running-one",
+          "running-one is running, which admits: agent-task wait running-one [--after <name>]... [--waits <text>]; agent-task review running-one; agent-task stop running-one; agent-task done running-one",
       }),
     );
     expect(taskByName(ctx.store, named("running-one"))).toEqual(task);
@@ -294,8 +295,62 @@ describe("wait", () => {
   });
 });
 
+describe("review", () => {
+  test("takes a running task to review, recording the time and keeping the rest, and refuses a task in review, a queued one and an unknown one", () => {
+    const ctx = context();
+    const { task } = started(ctx, "task-a", "s1");
+    const reviewed = review(later(ctx), "task-a");
+    expect(reviewed).toEqual({ ...task, state: "review", reviewed: "2026-10-16T11:00:00.000Z" });
+    expect(() => review(ctx, "task-a")).toThrow(
+      expect.objectContaining({
+        code: "wrong_state",
+        meta: {
+          name: "task-a",
+          act: "review",
+          state: "review",
+          admits: [
+            "agent-task wait task-a [--after <name>]... [--waits <text>]",
+            "agent-task stop task-a",
+            "agent-task done task-a",
+          ],
+        },
+      }),
+    );
+    added(ctx, "task-b");
+    expect(() => review(ctx, "task-b")).toThrow(
+      expect.objectContaining({ code: "wrong_state", meta: expect.objectContaining({ state: "queued" }) }),
+    );
+    expect(() => review(ctx, "task-c")).toThrow(
+      expect.objectContaining({ code: "unknown_task", meta: { name: "task-c", act: "review" } }),
+    );
+    expect(taskByName(ctx.store, named("task-a"))).toEqual(reviewed);
+  });
+
+  test("a task in review refuses start as taken, takes waits, and goes back to queued by stop forgetting the review time", () => {
+    const ctx = context();
+    const { dir, task } = started(ctx, "task-a");
+    review(ctx, "task-a");
+    expect(() => start(ctx, { name: "task-a", repo: dir, brief: task.brief, session: null })).toThrow(
+      expect.objectContaining({ code: "name_taken", meta: expect.objectContaining({ state: "review" }) }),
+    );
+    expect(wait(ctx, { name: "task-a", after: [], waits: "the owner" })).toMatchObject({
+      state: "review",
+      waits: "the owner",
+    });
+    expect(stop(ctx, "task-a")).toEqual({
+      name: named("task-a"),
+      state: "queued",
+      repo: dir,
+      ...UNQUEUED,
+      waits: "the owner",
+      added: task.added,
+      after: [],
+    });
+  });
+});
+
 describe("list", () => {
-  test("lists the running tasks oldest first, flagging a brief whose content changed, that is gone or that cannot be read, and the queued apart", () => {
+  test("lists the running and in-review tasks oldest started first, flagging a brief whose content changed, that is gone or that cannot be read, and the queued apart", () => {
     const ctx = context();
     const a = started(ctx, "task-a");
     const b = started(later(ctx), "task-b");
@@ -304,6 +359,7 @@ describe("list", () => {
     const e = started(later(ctx), "task-e");
     done(ctx, "task-d");
     stop(ctx, "task-e");
+    const reviewed = review(ctx, "task-b");
     writeFileSync(b.task.brief, "# Brief\n\nAmended.\n");
     rmSync(c.task.brief);
     chmodSync(e.task.brief, 0o000);
@@ -317,6 +373,7 @@ describe("list", () => {
       [named("task-f"), true],
     ]);
     expect(listing.tasks[0]).toEqual({ ...a.task, briefChanged: false });
+    expect(listing.tasks[1]).toEqual({ ...reviewed, briefChanged: true });
     expect(listing.ready).toEqual([
       {
         name: named("task-e"),
@@ -413,9 +470,9 @@ describe("done", () => {
     ]);
   });
 
-  test("refuses an invalid name for stop and done as it does for start", () => {
+  test("refuses an invalid name for review, stop and done as it does for start", () => {
     const ctx = context();
-    for (const act of [stop, done])
+    for (const act of [review, stop, done])
       expect(() => act(ctx, "Task_A")).toThrow(
         expect.objectContaining({ code: "invalid_name", meta: { name: "Task_A" } }),
       );

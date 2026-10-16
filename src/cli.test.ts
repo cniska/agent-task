@@ -32,6 +32,7 @@ describe("the cli", () => {
       "add",
       "start",
       "wait",
+      "review",
       "list",
       "stop",
       "done",
@@ -74,8 +75,11 @@ describe("the cli", () => {
         kind: "usage",
         code: "unknown_command",
         message: "frobnicate is not an agent-task command; agent-task with no command lists them",
-        meta: { name: "frobnicate", usage: "agent-task add|start|wait|list|stop|done|doctor|--version" },
-        resolve: "agent-task add|start|wait|list|stop|done|doctor|--version",
+        meta: {
+          name: "frobnicate",
+          usage: "agent-task add|start|wait|review|list|stop|done|doctor|--version",
+        },
+        resolve: "agent-task add|start|wait|review|list|stop|done|doctor|--version",
       },
     });
   });
@@ -95,6 +99,8 @@ describe("the cli", () => {
       ["list", "extra"],
       ["doctor", "extra"],
       ["start", "a", "--repo", ".", "--brief", "x", "--session", " "],
+      ["review"],
+      ["review", "a", "b"],
       ["stop"],
       ["stop", "a", "--force"],
       ["done", "a", "b"],

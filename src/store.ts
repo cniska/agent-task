@@ -19,7 +19,7 @@ const PRIORITY_RANK = `CASE priority ${PRIORITIES.map((priority, rank) => `WHEN 
 const TABLES = `
 CREATE TABLE tasks (
   name TEXT PRIMARY KEY,
-  state TEXT NOT NULL CHECK (state IN ('queued', 'running')),
+  state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'review')),
   repo TEXT NOT NULL,
   goal TEXT,
   plan TEXT,
@@ -30,7 +30,9 @@ CREATE TABLE tasks (
   brief_sha TEXT,
   session TEXT,
   started_at TEXT,
+  reviewed_at TEXT,
   CHECK ((state = 'queued') = (brief IS NULL)),
+  CHECK ((state = 'review') = (reviewed_at IS NOT NULL)),
   CHECK ((brief IS NULL) = (brief_sha IS NULL)),
   CHECK ((brief IS NULL) = (started_at IS NULL)),
   CHECK (brief IS NOT NULL OR session IS NULL)
@@ -59,7 +61,7 @@ ${VERSION_PRAGMA}
 const MIGRATABLE_VERSION = 1;
 
 const TASK_COLUMNS =
-  "name, state, repo, goal, plan, priority, waits, added_at, brief, brief_sha, session, started_at";
+  "name, state, repo, goal, plan, priority, waits, added_at, brief, brief_sha, session, started_at, reviewed_at";
 
 const BUSY = "SQLITE_BUSY";
 
@@ -126,7 +128,9 @@ type Started = Added & {
 
 export type Running = Started & { readonly state: "running" };
 
-export type Task = Queued | Running;
+export type InReview = Started & { readonly state: "review"; readonly reviewed: string };
+
+export type Task = Queued | Running | InReview;
 
 export type Store = { readonly db: Database; readonly path: string; readonly busyWaitMs: number };
 
@@ -288,9 +292,13 @@ function parseTask(value: unknown, after: readonly TaskName[]): Task {
   const brief = nullableText(row, "brief");
   const briefSha = nullableText(row, "brief_sha");
   const started = nullableText(row, "started_at");
+  const reviewed = nullableText(row, "reviewed_at");
   if (state === "queued" && brief === null) return { ...added, state, after };
-  if (state === "running" && brief !== null && briefSha !== null && started !== null)
-    return { ...added, state, brief, briefSha, session: nullableText(row, "session"), started };
+  if (brief === null || briefSha === null || started === null)
+    throw fault("row_malformed", { detail: `state ${state} does not fit its brief and times` });
+  const task = { ...added, brief, briefSha, session: nullableText(row, "session"), started };
+  if (state === "running" && reviewed === null) return { ...task, state };
+  if (state === "review" && reviewed !== null) return { ...task, state, reviewed };
   throw fault("row_malformed", { detail: `state ${state} does not fit its brief and times` });
 }
 
@@ -303,6 +311,18 @@ function parseQueued(value: unknown, after: readonly TaskName[]): Queued {
 function parseRunning(value: unknown): Running {
   const task = parseTask(value, []);
   invariant(task.state === "running", "a running row is running");
+  return task;
+}
+
+function parseInReview(value: unknown): InReview {
+  const task = parseTask(value, []);
+  invariant(task.state === "review", "a reviewed row is in review");
+  return task;
+}
+
+function parseStarted(value: unknown): Running | InReview {
+  const task = parseTask(value, []);
+  invariant(task.state !== "queued", "a started row is running or in review");
   return task;
 }
 
@@ -440,13 +460,27 @@ export function setWaiting(store: Store, name: TaskName, { after, waits }: Waiti
   });
 }
 
+export function reviewTask(store: Store, name: TaskName, reviewed: string): InReview | null {
+  const { db } = store;
+  const row = translated(store, () =>
+    db
+      .query<unknown, [string, string]>(
+        `UPDATE tasks SET state = 'review', reviewed_at = ?
+         WHERE name = ? AND state = 'running' RETURNING ${TASK_COLUMNS}`,
+      )
+      .get(reviewed, name),
+  );
+  return row === null ? null : parseInReview(row);
+}
+
 export function stopTask(store: Store, name: TaskName): Queued | null {
   const { db } = store;
   const row = translated(store, () =>
     db
       .query<unknown, [string]>(
-        `UPDATE tasks SET state = 'queued', brief = NULL, brief_sha = NULL, session = NULL, started_at = NULL
-         WHERE name = ? AND state = 'running' RETURNING ${TASK_COLUMNS}`,
+        `UPDATE tasks SET state = 'queued', brief = NULL, brief_sha = NULL, session = NULL, started_at = NULL,
+           reviewed_at = NULL
+         WHERE name = ? AND state IN ('running', 'review') RETURNING ${TASK_COLUMNS}`,
       )
       .get(name),
   );
@@ -472,16 +506,16 @@ export function taskByName(store: Store, name: TaskName): Task | null {
   });
 }
 
-export function startedTasks(store: Store): readonly Running[] {
+export function startedTasks(store: Store): readonly (Running | InReview)[] {
   const { db } = store;
   const rows = translated(store, () =>
     db
       .query<unknown, []>(
-        `SELECT ${TASK_COLUMNS} FROM tasks WHERE state = 'running' ORDER BY started_at, name`,
+        `SELECT ${TASK_COLUMNS} FROM tasks WHERE state IN ('running', 'review') ORDER BY started_at, name`,
       )
       .all(),
   );
-  return rows.map(parseRunning);
+  return rows.map(parseStarted);
 }
 
 export function queuedTasks(store: Store): readonly Queued[] {

@@ -5,6 +5,7 @@ import { permits } from "./file";
 import { blobSha, mainWorkingTree, type ProcessEnv } from "./git";
 import {
   heldAfter,
+  type InReview,
   insertQueued,
   insertRunning,
   isTaskName,
@@ -14,6 +15,7 @@ import {
   type Running,
   removeTask,
   replaceQueued,
+  reviewTask,
   type Store,
   setWaiting,
   startedTasks,
@@ -32,12 +34,13 @@ export type Context = {
 
 type State = Task["state"];
 
-type Act = "add" | "start" | "wait" | "stop" | "done";
+type Act = "add" | "start" | "wait" | "review" | "stop" | "done";
 
 export const USAGE = {
   add: "agent-task add <name> --repo <path> --goal <text> [--plan <file>] [--priority urgent|high|medium|low] [--after <name>]... [--waits <text>]",
   start: "agent-task start <name> --repo <path> --brief <file> [--session <id>]",
   wait: "agent-task wait <name> [--after <name>]... [--waits <text>]",
+  review: "agent-task review <name>",
   list: "agent-task list",
   stop: "agent-task stop <name>",
   done: "agent-task done <name>",
@@ -52,6 +55,8 @@ function admitted(name: string, state: State): readonly string[] {
     case "queued":
       return [USAGE.add, USAGE.wait, USAGE.start, USAGE.done].map((usage) => actFor(usage, name));
     case "running":
+      return [USAGE.wait, USAGE.review, USAGE.stop, USAGE.done].map((usage) => actFor(usage, name));
+    case "review":
       return [USAGE.wait, USAGE.stop, USAGE.done].map((usage) => actFor(usage, name));
     default:
       return unreachable(state);
@@ -197,7 +202,14 @@ export function wait({ store }: Context, request: WaitRequest): Task {
   return waiting;
 }
 
-type Listed = Running & { readonly briefChanged: boolean };
+export function review({ store, now }: Context, raw: string): InReview {
+  const name = parseName(raw);
+  const reviewed = reviewTask(store, name, now().toISOString());
+  if (reviewed === null) throw refuseByState("review", name, taskByName(store, name));
+  return reviewed;
+}
+
+type Listed = (Running | InReview) & { readonly briefChanged: boolean };
 
 export type Listing = {
   readonly tasks: readonly Listed[];

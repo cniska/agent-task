@@ -3,9 +3,9 @@ set -uo pipefail
 
 source "${BASH_SOURCE[0]%/*}/tasks.sh"
 
-readonly UNREAD="the session was not told which tasks are running"
-readonly HEADING="cniska-task: the running tasks, as agent-task list prints them:"
-readonly CLOSING="A running task's brief does not change under it: the plugin denies an edit to one, naming agent-task stop, the edit and agent-task start again."
+readonly UNREAD="the session was not told which tasks are running or in review"
+readonly HEADING="cniska-task: the running and in-review tasks, as agent-task list prints them:"
+readonly CLOSING="A running or in-review task's brief does not change under it: the plugin denies an edit to one, naming agent-task stop, the edit and agent-task start again."
 
 working_directory() {
   jq -r '.cwd // ""' 2>/dev/null
@@ -33,7 +33,7 @@ main() {
   local real
   real="$(realpath "$cwd" 2>/dev/null)" || return 0
   local tasks
-  tasks="$(running_tasks)" || return 0
+  tasks="$(listed_tasks)" || return 0
   context "$real" <<<"$tasks"
 }
 

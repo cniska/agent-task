@@ -4,7 +4,7 @@ import { removeScratch, run, world } from "./harness";
 
 afterEach(removeScratch);
 
-test("AC-17 --version prints the version alone, and refuses an argument as a usage error", () => {
+test("AC-18 --version prints the version alone, and refuses an argument as a usage error", () => {
   const w = world();
   expect(run(w, w.root, ["--version"])).toEqual({ exitCode: 0, stdout: `${version}\n`, stderr: "" });
   const extra = run(w, w.root, ["--version", "now"]);
@@ -16,7 +16,7 @@ test("AC-17 --version prints the version alone, and refuses an argument as a usa
   });
 });
 
-test("AC-18 no command and --help list the commands and the version flag as one JSON line", () => {
+test("AC-19 no command and --help list the commands and the version flag as one JSON line", () => {
   const w = world();
   const bare = run(w, w.root, []);
   expect([bare.exitCode, bare.stderr]).toEqual([0, ""]);
@@ -26,6 +26,7 @@ test("AC-18 no command and --help list the commands and the version flag as one 
     "add",
     "start",
     "wait",
+    "review",
     "list",
     "stop",
     "done",
@@ -37,7 +38,7 @@ test("AC-18 no command and --help list the commands and the version flag as one 
   expect(run(w, w.root, ["--help"]).stdout).toBe(bare.stdout);
 });
 
-test("AC-19 an unknown command and a misused one are usage errors on stderr, exit 2, and a refusal exits 1", () => {
+test("AC-20 an unknown command and a misused one are usage errors on stderr, exit 2, and a refusal exits 1", () => {
   const w = world();
   const unknown = run(w, w.root, ["frobnicate"]);
   expect([unknown.exitCode, unknown.stdout]).toEqual([2, ""]);
