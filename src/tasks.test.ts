@@ -94,11 +94,16 @@ describe("add", () => {
     expect(dir).not.toBe(other);
   });
 
-  test("refuses a running name as taken, a plan that is no readable file, an unknown after name, and records nothing", () => {
+  test("refuses a running or in-review name as taken, a plan that is no readable file, an unknown after name, and records nothing", () => {
     const ctx = context();
     const { dir } = started(ctx, "running-one");
     expect(() => add(ctx, request("running-one", dir))).toThrow(
       expect.objectContaining({ code: "name_taken", meta: expect.objectContaining({ state: "running" }) }),
+    );
+    started(ctx, "review-one");
+    review(ctx, "review-one");
+    expect(() => add(ctx, request("review-one", dir))).toThrow(
+      expect.objectContaining({ code: "name_taken", meta: expect.objectContaining({ state: "review" }) }),
     );
     const unreadable = brief(scratchDir());
     chmodSync(unreadable, 0o000);

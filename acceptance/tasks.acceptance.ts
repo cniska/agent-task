@@ -387,7 +387,7 @@ test("AC-10 add queues a task with its goal, plan, priority, after and waits, li
   expect(names([...ready(w), ...waiting(w)])).toEqual(["task-b", "task-a"]);
 });
 
-test("AC-11 add on a queued name replaces its record keeping the added time, and on a running name is refused name_taken leaving it", () => {
+test("AC-11 add on a queued name replaces its record keeping the added time, and on a running or in-review name is refused name_taken leaving it", () => {
   const w = world();
   const dir = repo(w);
   const other = repo(w, "other");
@@ -409,7 +409,16 @@ test("AC-11 add on a queued name replaces its record keeping the added time, and
     code: "name_taken",
     meta: { name: "task-b", state: "running" },
   });
-  expect(listed(w)).toEqual([{ ...running, briefChanged: false }]);
+  result(start(w, "task-c", dir, brief(w.root)));
+  const reviewed = result(run(w, w.root, ["review", "task-c"]));
+  expect(refusal(add(w, "task-c", dir, "again"))).toMatchObject({
+    code: "name_taken",
+    meta: { name: "task-c", state: "review" },
+  });
+  expect(listed(w)).toEqual([
+    { ...running, briefChanged: false },
+    { ...reviewed, briefChanged: false },
+  ]);
   expect(ready(w)).toEqual([replaced]);
 });
 
