@@ -1,6 +1,20 @@
 # Development
 
-Checks, scripts and rules, for working on this repo, set up from a clone as the [README](../README.md#from-a-clone) says.
+Setup, checks, scripts and rules, for working on this repo.
+
+## Setup
+
+agent-task runs on [Bun](https://bun.sh), which [mise](https://mise.jdx.dev) installs for it. With mise installed:
+
+```bash
+git clone https://github.com/cniska/agent-task.git
+cd agent-task
+mise trust && mise install
+```
+
+- `mise install` installs Bun and the dependencies, and the `bun install` its postinstall runs calls the `prepare` script, which points `core.hooksPath` at `.githooks/`. Only in the clone, never in a worktree, does it put `agent-task` in `~/.bun/bin` with `bun link`, so removing a worktree never leaves the command pointing at a deleted checkout. Add `~/.bun/bin` to your `PATH` if it is not there yet.
+- `.worktree-hooks/setup` sets up a task worktree the same way, without linking the CLI.
+- `.githooks/` holds the commit-subject, format and no-comments gates, and runs `bun run check` before each commit.
 
 ## Checks
 

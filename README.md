@@ -41,18 +41,6 @@ bun add -g @cniska/agent-task
 
 The curl line installs `~/.local/bin/agent-task` and, when that directory is not on your `PATH`, adds it to `~/.zshrc` for zsh or to an existing `~/.bashrc` or `~/.bash_profile` for bash, and otherwise asks you to add it. Each channel updates the way it installed: `brew upgrade agent-task`, `npm update -g @cniska/agent-task`, `bun update -g @cniska/agent-task`, or the curl line run again.
 
-### From a clone
-
-To run agent-task from source instead, clone it. It runs on [Bun](https://bun.sh), which [mise](https://mise.jdx.dev) installs for it. With mise installed:
-
-```bash
-git clone https://github.com/cniska/agent-task.git
-cd agent-task
-mise trust && mise install
-```
-
-`mise install` installs Bun and the dependencies. In the clone, never in a worktree, it puts `agent-task` in `~/.bun/bin` with `bun link`, so removing a worktree never leaves the command pointing at a deleted checkout. Add that directory to your `PATH` if it is not there yet.
-
 Then install the Claude Code plugin:
 
 ```bash
@@ -85,5 +73,5 @@ agent-task is the record of the work on this machine, not an issue tracker such 
 
 - [Commands](docs/commands.md): every command, its flags and output, and where the store lives.
 - [Claude Code plugin](docs/plugin.md): what the plugin's hooks do and what they need.
-- [Development](docs/development.md): checks, scripts and rules, for working on this repo.
+- [Development](docs/development.md): setup, checks, scripts and rules, for working on this repo.
 - [Releasing](docs/releasing.md): the release workflow, what a release guarantees, the owner's one-time setup and each release's steps.
