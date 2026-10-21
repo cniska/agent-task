@@ -17,7 +17,7 @@ Steps 4 and 5 come before the first tag. Steps 1 to 3 need the first release's f
 1. Publish each npm package once by hand, so trusted publishing can be set on it: `@cniska/agent-task-darwin-arm64`, `@cniska/agent-task-linux-x64`, then `@cniska/agent-task`. Build them from the first release's files with `bun scripts/build-npm.ts <release files> dist/npm`, then `npm publish ./dist/npm/<package> --access public` for each.
 2. On npmjs.com, add a trusted publisher to each of the three packages: GitHub Actions, repository `cniska/agent-task`, workflow `release.yml`. Later releases publish with no npm token.
 3. In each package's settings on npmjs.com, require two-factor authentication and disallow tokens, so only the trusted publisher can publish.
-4. In `cniska/agent-task`'s Actions secrets, add `AGENT_TASK_TAP_DISPATCH_TOKEN`: a fine-grained token on `cniska/homebrew-tap` with Contents read and write, which the `homebrew` job uses to dispatch the repin.
+4. In `cniska/agent-task`'s Actions secrets, add `TAP_DISPATCH_TOKEN`: a fine-grained token on `cniska/homebrew-tap` with Contents read and write, which the `homebrew` job uses to dispatch the repin.
 5. In `cniska/agent-task`'s Settings, under Releases, select Enable release immutability, so each release published afterwards is immutable, as [What a release guarantees](#what-a-release-guarantees) says. The workflow publishes the same way with the setting off.
 
 ## The first release
