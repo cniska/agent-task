@@ -9,7 +9,7 @@ import {
   listing,
   type Ran,
   refusal,
-  removeScratch,
+  removeScratchDirs,
   repo,
   result,
   run,
@@ -19,7 +19,7 @@ import {
   world,
 } from "./harness";
 
-afterEach(removeScratch);
+afterEach(removeScratchDirs);
 
 const BRIEF_SHA = "b0ac2230fd4c9051b89302545e75ece9b569e35f";
 

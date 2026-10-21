@@ -10,7 +10,7 @@ import {
   packageVersion,
   type Ran,
   releaseAssets,
-  removeScratch,
+  removeScratchDirs,
   repo,
   runProgram,
   SYSTEM_PATH,
@@ -19,7 +19,7 @@ import {
   world,
 } from "./harness";
 
-afterEach(removeScratch);
+afterEach(removeScratchDirs);
 
 const BUILD_TIMEOUT_MS = 60_000;
 

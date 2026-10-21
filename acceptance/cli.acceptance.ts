@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
 import { version } from "../package.json";
-import { removeScratch, run, world } from "./harness";
+import { removeScratchDirs, run, world } from "./harness";
 
-afterEach(removeScratch);
+afterEach(removeScratchDirs);
 
 test("AC-18 --version prints the version alone, and refuses an argument as a usage error", () => {
   const w = world();

@@ -3,9 +3,9 @@ import { afterEach, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { binWith, brief, type Ran, removeScratch, repo, result, run, type World, world } from "./harness";
+import { binWith, brief, type Ran, removeScratchDirs, repo, result, run, type World, world } from "./harness";
 
-afterEach(removeScratch);
+afterEach(removeScratchDirs);
 
 const PLUGIN = join(import.meta.dir, "..", "plugin");
 

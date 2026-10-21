@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
 import { userInfo } from "node:os";
-import { removeScratch, world } from "./harness";
+import { removeScratchDirs, world } from "./harness";
 
-afterEach(removeScratch);
+afterEach(removeScratchDirs);
 
 test("AC-21 the test environment's home and XDG directories are scratch directories", () => {
   const account = userInfo().homedir;

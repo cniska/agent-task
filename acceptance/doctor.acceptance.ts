@@ -2,9 +2,9 @@ import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { binWith, brief, git, type Ran, removeScratch, repo, run, type World, world } from "./harness";
+import { binWith, brief, git, type Ran, removeScratchDirs, repo, run, type World, world } from "./harness";
 
-afterEach(removeScratch);
+afterEach(removeScratchDirs);
 
 type Check = {
   readonly name: string;
