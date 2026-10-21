@@ -14,33 +14,16 @@ const INSTALLED_WORKFLOW = "# agent-gate:";
 
 const GUARDED_FILES = ["SPEC.md", "README.md"];
 
-const README = "README.md";
-
-const CONTRIBUTOR_SECTION = "## Development";
-
-const SUGGESTED = /^(cniska-skills|agent-skills)$/;
-
 const OTHER_TOOL = /\b(cniska-(skills|record|gates|worktree)|agent-(record|gates|skills|worktree|ops))\b/g;
 
 type Guarded = { readonly path: string; readonly text: string };
 
-function contributorLines(text: string): ReadonlySet<number> {
-  const lines = text.split("\n");
-  const start = lines.indexOf(CONTRIBUTOR_SECTION);
-  if (start === -1) return new Set();
-  const after = lines.findIndex((line, index) => index > start && /^## /.test(line));
-  const end = after === -1 ? lines.length : after;
-  return new Set(Array.from({ length: end - start }, (_, offset) => start + offset + 1));
-}
-
 function namings({ path, text }: Guarded): readonly string[] {
-  const suggesting = path === README ? contributorLines(text) : new Set<number>();
-  return text.split("\n").flatMap((line, index) => {
-    const at = index + 1;
-    return [...line.matchAll(OTHER_TOOL)]
-      .filter(([match]) => !(suggesting.has(at) && SUGGESTED.test(match)))
-      .map(([match]) => `${path}:${at} names another tool: ${match}`);
-  });
+  return text
+    .split("\n")
+    .flatMap((line, index) =>
+      [...line.matchAll(OTHER_TOOL)].map(([match]) => `${path}:${index + 1} names another tool: ${match}`),
+    );
 }
 
 function filesUnder(dir: string): readonly string[] {
@@ -67,16 +50,6 @@ function guardedFiles(): readonly Guarded[] {
 describe("the repo stands alone", () => {
   test("names no other tool", () => {
     expect(guardedFiles().flatMap(namings)).toEqual([]);
-  });
-
-  test("lets only the README's contributor section suggest cniska-skills", () => {
-    const text = `# x\n\nUse cniska-skills.\n\n${CONTRIBUTOR_SECTION}\n\nTry cniska-skills or agent-gates.\n\n## Next\n\ncniska-skills`;
-    expect(namings({ path: README, text })).toEqual([
-      "README.md:3 names another tool: cniska-skills",
-      "README.md:7 names another tool: agent-gates",
-      "README.md:11 names another tool: cniska-skills",
-    ]);
-    expect(namings({ path: "SPEC.md", text })).toHaveLength(4);
   });
 
   test("guards the sources, the spec, the README and the workflows it owns, but not itself or a workflow another tool installs", () => {

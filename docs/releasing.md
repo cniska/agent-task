@@ -12,59 +12,11 @@ A release never updates itself. Each channel updates the way it installed: `brew
 
 ## The owner's setup, once
 
-Steps 4 and 5 come before the first tag. Steps 1 to 3 need the first release's files, so they come in the first release's step 1.
-
 1. Publish each npm package once by hand, so trusted publishing can be set on it: `@cniska/agent-task-darwin-arm64`, `@cniska/agent-task-linux-x64`, then `@cniska/agent-task`. Build them from the first release's files with `bun scripts/build-npm.ts <release files> dist/npm`, then `npm publish ./dist/npm/<package> --access public` for each.
 2. On npmjs.com, add a trusted publisher to each of the three packages: GitHub Actions, repository `cniska/agent-task`, workflow `release.yml`. Later releases publish with no npm token.
 3. In each package's settings on npmjs.com, require two-factor authentication and disallow tokens, so only the trusted publisher can publish.
 4. In `cniska/agent-task`'s Actions secrets, add `TAP_DISPATCH_TOKEN`: a fine-grained token on `cniska/homebrew-tap` with Contents read and write, which the `homebrew` job uses to dispatch the repin.
 5. In `cniska/agent-task`'s Settings, under Releases, select Enable release immutability, so each release published afterwards is immutable, as [What a release guarantees](#what-a-release-guarantees) says. The workflow publishes the same way with the setting off.
-
-## The first release
-
-`package.json` already reads `0.1.0`, so the first release is a tag, not `scripts/release.sh`.
-
-1. `git tag -m v0.1.0 v0.1.0 && git push origin v0.1.0`, and watch the workflow. The npm job fails on a package not yet set up for trusted publishing, so the registry smoke jobs that wait on it do not run. Do setup steps 1 to 3 from the release's files, then re-run the failed jobs, which runs the npm job again together with the smoke jobs. The `homebrew` job's repin fails in `cniska/homebrew-tap` until step 2 adds the formula.
-2. In `cniska/homebrew-tap`, on a branch of its own that adds `Formula/agent-task.rb` and its README section, repin the formula to the release before merging, so `main` never pins checksums of a build no release holds: download the release's `SHA256SUMS.txt`, run `python3 scripts/bump-formula.py Formula/agent-task.rb cniska/agent-task SHA256SUMS.txt v0.1.0`, commit, then merge. `brew install cniska/tap/agent-task` installs it. From the next release on, the `homebrew` job's dispatch repins it.
-3. Land the channel lines in `README.md`'s Install section, above the clone steps, each channel in a fenced block of its own under a short label, so no one runs all four at once. After them, say where the curl line installs and that each channel updates the way it installed, linking here, then move the plugin block after the channel lines:
-
-   ````markdown
-   Install the `agent-task` command for macOS on Apple silicon or Linux on x64 with one of these.
-
-   With curl:
-
-   ```bash
-   curl -fsSL https://github.com/cniska/agent-task/releases/latest/download/install.sh | sh
-   ```
-
-   With Homebrew:
-
-   ```bash
-   brew install cniska/tap/agent-task
-   ```
-
-   With npm:
-
-   ```bash
-   npm install -g @cniska/agent-task
-   ```
-
-   With Bun:
-
-   ```bash
-   bun add -g @cniska/agent-task
-   ```
-
-   The curl line installs `~/.local/bin/agent-task` and, when that directory is not on your `PATH`, adds it to `~/.zshrc` for zsh or to an existing `~/.bashrc` or `~/.bash_profile` for bash, and otherwise asks you to add it. Each channel updates the way it installed, as [Releasing](docs/releasing.md) says.
-
-   Then, for Claude Code, install the plugin from the `cniska` marketplace:
-
-   ```bash
-   claude plugin install cniska-task@cniska
-   ```
-
-   The plugin brings neither Bun nor the CLI, and does nothing until `agent-task` is on the `PATH` Claude Code starts with, which the line the curl install adds to a shell file may not reach; run `agent-task doctor` under that `PATH` to check. Its hooks also need `jq` and `realpath`.
-   ````
 
 ## Each later release
 

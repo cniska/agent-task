@@ -1,6 +1,6 @@
 # agent-task
 
-Records the coding-agent tasks on one machine, queued, running or in review, from the time each is added or started until its work is over. [`SPEC.md`](SPEC.md) states what must hold and is the source of truth; it changes in the same commit as the behavior it describes. [`README.md`](README.md) has the install and the commands, and [`src/README.md`](src/README.md) maps the modules and the boundaries between them.
+Records the coding-agent tasks on one machine, queued, running or in review, from the time each is added or started until its work is over. [`SPEC.md`](SPEC.md) states what must hold and is the source of truth; it changes in the same commit as the behavior it describes. [`README.md`](README.md) has the install and a summary of every command, [`docs/commands.md`](docs/commands.md) every command, its flags and output, and the store, and [`src/README.md`](src/README.md) maps the modules and the boundaries between them.
 
 ## Rules
 
@@ -10,7 +10,7 @@ Records the coding-agent tasks on one machine, queued, running or in review, fro
 - A refusal is a coded error that names what was refused, its cause and the act that resolves it, and a rerun after that act converges. State is read from the store, the filesystem and git on every command, never remembered.
 - No test waits real time: the clock is passed in from the entry.
 - Fix the cause, never work around it, and add no debt. Debt you find is fixed where it is found.
-- This repo requires no other cniska tool, and names none of them, nor any of their skills, agents, plugin installs or report shapes, in src, acceptance, scripts, bin, plugin, npm, docs, SPEC, README or the workflows it owns; a workflow whose first line starts `# agent-gate:` is installed by another tool and names it. The one exception is the README's contributor section, which may suggest cniska-skills. `scripts/standalone.test.ts`, in the check, refuses the names it knows.
-- Code carries no comments, tool contracts aside. `.githooks/pre-commit.d/no-comments` refuses a comment a commit adds. A why goes into a name, a test, or the README.
+- This repo requires no other cniska tool, and names none of them, nor any of their skills, agents, plugin installs or report shapes, in src, acceptance, scripts, bin, plugin, npm, docs, SPEC, README or the workflows it owns; a workflow whose first line starts `# agent-gate:` is installed by another tool and names it. `scripts/standalone.test.ts`, in the check, refuses the names it knows.
+- Code carries no comments, tool contracts aside. `.githooks/pre-commit.d/no-comments` refuses a comment a commit adds. A why goes into a name, a test, or the README or the doc under `docs/` that owns it.
 - Work each task on a topic branch in its own worktree. Commit each slice there once `bun run check` passes and a fresh reviewer accepts it, and push the branch after each. `.githooks/commit-msg` judges the message: one Conventional Commit subject, ASCII, at most 50 characters, and no body.
 - Land a task as a whole, with no pull request: once a fresh reviewer, given the branch's whole diff against `main`, accepts it (for a one-commit branch, that commit's accept), fast-forward `main` to the branch, push `main` and delete the branch on origin. That accept is the owner's standing sign-off, so no landing waits on them.

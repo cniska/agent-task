@@ -2,7 +2,7 @@
 
 > The coding-agent tasks on one machine, queued, running or in review, recorded so they can be listed in the order to start them, checked against their briefs, stopped and removed.
 
-This document states what must hold, not how. [`README.md`](README.md) has the install and the commands, and [`src/README.md`](src/README.md) maps the modules that meet these requirements.
+This document states what must hold, not how. [`README.md`](README.md) has the install and a summary of every command, [`docs/commands.md`](docs/commands.md) every command, its flags and output, and the store, and [`src/README.md`](src/README.md) maps the modules that meet these requirements.
 
 ## 1. Purpose & context
 
@@ -68,7 +68,7 @@ Coding agents run in parallel on one machine, each on a task started from a brie
 
 - **FR-23** — Before each `Edit`, `Write` or `MultiEdit`, the `cniska-task` plugin reads the running and in-review tasks with `list` and denies the edit when the file it names, resolved to its real path, is the brief of one of them. The denial names the file, the task and its state, says a task's brief does not change under it while the task runs or is in review, and names the acts in order: `agent-task stop <name>`, then the edit, then `agent-task start <name> --repo <repo> --brief <file> [--session <id>]`, which freezes the edited brief. A brief that is gone, with or without its directory, is still matched by its path, so writing it back is denied too. An edit to a file no running or in-review task names as its brief passes without a word.
 - **FR-24** — When a session starts, resumes, clears or compacts in a working directory that holds the brief of a running or in-review task, the plugin puts the running and in-review tasks in the session's context as `list` prints them, `briefChanged` included, with a line saying the plugin denies an edit to such a task's brief. Elsewhere it prints nothing.
-- **FR-25** — A hook prints nothing and denies nothing when `agent-task` is not on `PATH`, when `list` is refused, such as `store_version`, or when the hook's input names no file or no directory, and it exits 0 in every case; the hooks deny nothing but the edit FR-23 names. Without `jq` or `realpath` on `PATH`, a hook leaves a note on stderr and nothing else. A hook sees the `PATH` Claude Code started with; [`README.md`](README.md) says how to check that `PATH` with `doctor`.
+- **FR-25** — A hook prints nothing and denies nothing when `agent-task` is not on `PATH`, when `list` is refused, such as `store_version`, or when the hook's input names no file or no directory, and it exits 0 in every case; the hooks deny nothing but the edit FR-23 names. Without `jq` or `realpath` on `PATH`, a hook leaves a note on stderr and nothing else. A hook sees the `PATH` Claude Code started with; [`docs/plugin.md`](docs/plugin.md) says how to check that `PATH` with `doctor`.
 
 ### 2.12 doctor
 
@@ -133,7 +133,7 @@ Coding agents run in parallel on one machine, each on a task started from a brie
 ## 6. Deliverables
 
 - **D-1** — The `agent-task` CLI, run by Bun from a checkout through `bin/agent-task` and linked onto `PATH` by `mise install` in the primary checkout; and beside it the release binary `scripts/build-compiled.sh` compiles, for darwin-arm64 and linux-x64, shipped by a GitHub release with `install.sh`, by the npm packages and by the `cniska/tap` Homebrew formula. Each tarball and `install.sh` carries a build provenance attestation from `release.yml` at the tag, and the release is published only once every file is attached, so a release with release immutability on keeps the files it published, as [`docs/releasing.md`](docs/releasing.md#what-a-release-guarantees) says.
-- **D-2** — `README.md`, `AGENTS.md`, `src/README.md`, `docs/releasing.md` and this spec.
+- **D-2** — `README.md`, `AGENTS.md`, `src/README.md`, `docs/commands.md`, `docs/plugin.md`, `docs/development.md`, `docs/releasing.md` and this spec.
 - **D-3** — The test suite, run by `bun run check`, and the acceptance suite, run by `bun run acceptance`, whose test names cite the criteria in §5. The acceptance suite drives the CLI, the plugin's hooks as its `hooks.json` registers them, the compiled release binary, `install.sh` against a stand-in for the release downloads, and the npm packages through their launcher, from outside.
 - **D-4** — The `cniska-task` Claude Code plugin in `plugin/`.
 
