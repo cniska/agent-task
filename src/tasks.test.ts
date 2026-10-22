@@ -15,8 +15,17 @@ const UNQUEUED = { goal: null, plan: null, priority: null, waits: null };
 
 const EMPTY = { tasks: [], ready: [], waiting: [] };
 
+const CHECK_TIMEOUT_MS = 5000;
+
+const SHORT_CHECK_TIMEOUT_MS = 50;
+
 function context(at: Date = STARTED): Context {
-  return { store: openStore(join(scratchDir(), "tasks.db"), 0), processEnv: process.env, now: () => at };
+  return {
+    store: openStore(join(scratchDir(), "tasks.db"), 0),
+    processEnv: process.env,
+    now: () => at,
+    untilTimeoutMs: CHECK_TIMEOUT_MS,
+  };
 }
 
 function later(ctx: Context): Context {
@@ -402,9 +411,38 @@ describe("list", () => {
         added: "2026-10-16T11:00:00.000Z",
         after: [],
         until: null,
+        untilState: null,
       },
     ]);
     expect(listing.waiting).toEqual([]);
+  });
+
+  test("runs each queued task's check in its repository: a met check is ready whatever the text, and one unmet or failed, or met behind a held name, waits", () => {
+    const ctx = context();
+    const met = added(ctx, "met-with-text", { waits: "a word", until: "exit 0" });
+    added(ctx, "unmet", { until: "exit 1" });
+    added(ctx, "failed", { until: "exit 127" });
+    added(ctx, "met-after", { after: ["unmet"], until: "exit 0" });
+    const inRepo = added(ctx, "in-repo", { until: "test -f released" });
+    writeFileSync(join(inRepo.dir, "released"), "");
+    const listing = list(ctx);
+    expect(listing.ready).toEqual([
+      { ...inRepo.task, untilState: "met" },
+      { ...met.task, untilState: "met" },
+    ]);
+    expect(listing.waiting.map(({ name, untilState }) => [name, untilState])).toEqual([
+      [named("failed"), "failed"],
+      [named("met-after"), "met"],
+      [named("unmet"), "unmet"],
+    ]);
+  });
+
+  test("gives a check the timeout passed in, listing one that runs past it as waiting, timed out", () => {
+    const ctx = { ...context(), untilTimeoutMs: SHORT_CHECK_TIMEOUT_MS };
+    added(ctx, "slow", { until: "sleep 60" });
+    expect(list(ctx).waiting.map(({ name, untilState }) => [name, untilState])).toEqual([
+      [named("slow"), "timed_out"],
+    ]);
   });
 
   test("splits the queued into ready and waiting, each by priority with none last, then added time, then name", () => {

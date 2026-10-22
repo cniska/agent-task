@@ -8,6 +8,7 @@ export type Runtime = {
   readonly processEnv: ProcessEnv;
   readonly searchPath: readonly string[];
   readonly busyWaitMs: number;
+  readonly untilTimeoutMs: number;
   readonly now: () => Date;
 };
 

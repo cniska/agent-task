@@ -13,6 +13,8 @@ const VERSION_USAGE = `${PROGRAM} ${VERSION_FLAG}`;
 
 const BUSY_WAIT_MS = 5000;
 
+const UNTIL_TIMEOUT_MS = 5000;
+
 const FLAGS = [{ name: VERSION_FLAG, usage: VERSION_USAGE, summary: "print the version alone on one line" }];
 
 function blankToNull(value: string | undefined): string | null {
@@ -32,6 +34,7 @@ const runtime: Runtime = {
   processEnv: process.env,
   searchPath: searchPath(process.env.PATH, process.cwd()),
   busyWaitMs: BUSY_WAIT_MS,
+  untilTimeoutMs: UNTIL_TIMEOUT_MS,
   now: () => new Date(),
 };
 

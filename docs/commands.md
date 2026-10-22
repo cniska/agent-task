@@ -10,7 +10,7 @@ Each command prints one JSON line: a result on stdout, or an error on stderr nam
 | `agent-task start <name> --repo <path> --brief <file> [--session <id>]` | Run a task, new or queued, recording its repository, its brief with the brief's sha, and the session; refused `blocked` while a task it waits after is still held |
 | `agent-task wait <name> [--after <name>]... [--waits <text>] [--until <command>]` | Replace what a task waits for: tasks to land and a check that says the wait is met, on a queued task, and anything else as text; with none of the three, clear all three |
 | `agent-task review <name>` | Record that a running task was handed back for review; its brief stays frozen until `stop` or `done` |
-| `agent-task list` | List the running and in-review tasks, oldest started first, flagging each whose brief changed since it started; then the queued tasks `ready` to start and those `waiting`, each by priority, added time and name |
+| `agent-task list` | List the running and in-review tasks, oldest started first, flagging each whose brief changed since it started; then the queued tasks `ready` to start and those `waiting`, each by priority, added time and name, running each one's check and printing its result as `untilState` |
 | `agent-task stop <name>` | Take a running or in-review task back to queued, forgetting its brief, session and review time and keeping its goal, plan, priority and waits |
 | `agent-task done <name>` | Remove a task in any state, whatever became of its work |
 | `agent-task doctor` | Report what agent-task and its plugin need: the store, `bash`, `agent-task`, `jq`, `realpath` and git on `PATH`, each task's repository, each running or in-review task's brief and each plan a task names, each check `ok`, `warn` or `fail` with its fix; exit 1 when one fails |
@@ -23,7 +23,7 @@ Each command prints one JSON line: a result on stdout, or an error on stderr nam
 - A removed name is free to add or start again.
 - A task waits after a name only while the store holds it: `done` frees what waited after the name, and `add` of the name again blocks them again.
 - `waits` is text for the listing and stops nothing.
-- `until` is a shell command recorded as given; `start` drops it with the task's `after`, and `stop` returns the task to the queue with neither.
+- `until` is a shell command recorded as given. `list` runs it as `/bin/sh -c` in the task's repository, under the time limit [SPEC FR-33](../SPEC.md) sets, and prints the result as `untilState`: `met` on exit 0, `unmet` on exit 1 through 125, `timed_out`, or `failed` on exit 126 and up, a signal, or a repository that is gone. A task waiting after no held name is ready when its check is met, whatever its `waits`, or when it has no check and no `waits`. `start` drops the check with the task's `after`, and `stop` returns the task to the queue with neither.
 - `doctor` contacts no remote and reads no origin.
 
 ## The store

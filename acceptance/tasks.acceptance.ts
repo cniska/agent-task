@@ -38,6 +38,35 @@ CREATE TABLE task_commits (task TEXT NOT NULL REFERENCES tasks (name), sha TEXT 
 PRAGMA user_version = 1;
 `;
 
+const VERSION_TWO = `
+CREATE TABLE tasks (
+  name TEXT PRIMARY KEY,
+  state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'review')),
+  repo TEXT NOT NULL,
+  goal TEXT,
+  plan TEXT,
+  priority TEXT CHECK (priority IN ('urgent', 'high', 'medium', 'low')),
+  waits TEXT,
+  added_at TEXT NOT NULL,
+  brief TEXT,
+  brief_sha TEXT,
+  session TEXT,
+  started_at TEXT,
+  reviewed_at TEXT,
+  CHECK ((state = 'queued') = (brief IS NULL)),
+  CHECK ((state = 'review') = (reviewed_at IS NOT NULL)),
+  CHECK ((brief IS NULL) = (brief_sha IS NULL)),
+  CHECK ((brief IS NULL) = (started_at IS NULL)),
+  CHECK (brief IS NOT NULL OR session IS NULL)
+) STRICT;
+CREATE TABLE task_after (
+  task TEXT NOT NULL REFERENCES tasks (name) ON DELETE CASCADE,
+  after TEXT NOT NULL,
+  PRIMARY KEY (task, after)
+) STRICT;
+PRAGMA user_version = 2;
+`;
+
 function listed(w: World): readonly Shown[] {
   return listing(run(w, w.root, ["list"])).tasks;
 }
@@ -265,7 +294,7 @@ test("AC-8 list prints running tasks oldest first, reading each brief afresh to 
     ["mu", true],
     ["alpha", false],
   ]);
-  expect(ready(w)).toEqual([paused]);
+  expect(ready(w)).toEqual([{ ...paused, untilState: null }]);
 });
 
 test("AC-9 stop takes a running task back to queued and done removes a task in either state; a wrong state, an unknown name and an invalid name are refused", () => {
@@ -365,7 +394,11 @@ test("AC-10 add queues a task with its goal, plan, priority, after, waits and ch
     after: ["task-b"],
     until: "test -f released",
   });
-  expect(listing(run(w, w.root, ["list"]))).toEqual({ tasks: [], ready: [first], waiting: [full] });
+  expect(listing(run(w, w.root, ["list"]))).toEqual({
+    tasks: [],
+    ready: [{ ...first, untilState: null }],
+    waiting: [{ ...full, untilState: "unmet" }],
+  });
   const unreadable = brief(w.root, "unreadable.md");
   chmodSync(unreadable, 0o000);
   for (const missing of [join(w.root, "missing.md"), unreadable, w.root])
@@ -426,7 +459,7 @@ test("AC-11 add on a queued name replaces its record keeping the added time, and
     { ...running, briefChanged: false },
     { ...reviewed, briefChanged: false },
   ]);
-  expect(ready(w)).toEqual([replaced]);
+  expect(ready(w)).toEqual([{ ...replaced, untilState: null }]);
 });
 
 test("AC-12 wait replaces what a task waits after and for and its check, clears all three given nothing, sets only the text on a running task, and refuses --after and --until on a running task and an unknown name", () => {
@@ -503,7 +536,7 @@ test("AC-13 start of a queued task is refused blocked while a name it waits afte
   expect(blocked.resolve).toBe(
     "agent-task done task-b; agent-task done task-c once each has landed, or agent-task wait task-a [--after <name>]... [--waits <text>] [--until <command>] to wait after fewer",
   );
-  expect(waiting(w)).toEqual([queued]);
+  expect(waiting(w)).toEqual([{ ...queued, untilState: "met" }]);
   result(run(w, w.root, ["done", "task-b"]));
   expect(refusal(start(w, "task-a", dir, file))).toMatchObject({ meta: { after: ["task-c"] } });
   result(run(w, w.root, ["done", "task-c"]));
@@ -671,14 +704,144 @@ test("AC-17 a version-1 store is migrated by the first command that opens it, ke
   expect(refusal(start(w, "old-a", dir, kept))).toMatchObject({ code: "name_taken" });
 });
 
-test("AC-22 every command runs with git as the only program on PATH, and doctor names the hooks' missing programs", () => {
+test("AC-32 list runs each queued task's check in its repository: a met check is ready whatever the text, an unmet or failed one waits, so does a met one behind a held name, and the store is left as it was", () => {
+  const w = world();
+  const dir = repo(w);
+  const store = join(w.root, "data", "agent-task", "tasks.db");
+  const met = result(add(w, "met", dir, "g", "--until", "exit 0"));
+  const unmet = result(add(w, "unmet", dir, "g", "--until", "exit 1"));
+  const failed = result(add(w, "failed", dir, "g", "--until", "exit 127"));
+  const held = result(add(w, "held", dir, "g"));
+  const behind = result(add(w, "behind", dir, "g", "--after", "held", "--until", "true"));
+  const withText = result(add(w, "with-text", dir, "g", "--waits", "the owner", "--until", "exit 0"));
+  const inRepo = result(add(w, "in-repo", dir, "g", "--until", "test -f released"));
+  for (const task of [met, unmet, failed, held, behind, withText, inRepo])
+    expect(Object.keys(task)).not.toContain("untilState");
+  writeFileSync(join(dir, "released"), "");
+  const before = readFileSync(store);
+  expect(listing(run(w, w.root, ["list"]))).toEqual({
+    tasks: [],
+    ready: [
+      { ...met, untilState: "met" },
+      { ...held, untilState: null },
+      { ...withText, untilState: "met" },
+      { ...inRepo, untilState: "met" },
+    ],
+    waiting: [
+      { ...unmet, untilState: "unmet" },
+      { ...failed, untilState: "failed" },
+      { ...behind, untilState: "met" },
+    ],
+  });
+  rmSync(join(dir, "released"));
+  writeFileSync(join(w.root, "released"), "");
+  expect(names(ready(w))).toEqual(["met", "held", "with-text"]);
+  expect(waiting(w)).toEqual([
+    { ...unmet, untilState: "unmet" },
+    { ...failed, untilState: "failed" },
+    { ...behind, untilState: "met" },
+    { ...inRepo, untilState: "unmet" },
+  ]);
+  expect(readFileSync(store).equals(before)).toBe(true);
+});
+
+test("AC-33 a version-2 store is migrated by the first command that opens it, keeping its queued, running and in-review tasks with no check", () => {
+  const w = world();
+  const dir = repo(w);
+  const file = brief(w.root);
+  const path = storeOfVersion(w, 2, VERSION_TWO);
+  const db = new Database(path);
+  const insert = db.query(
+    "INSERT INTO tasks (name, state, repo, goal, plan, priority, waits, added_at, brief, brief_sha, session, started_at, reviewed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  );
+  const added = "2026-10-15T08:00:00.000Z";
+  const later = "2026-10-15T09:00:00.000Z";
+  insert.run(
+    "queued-one",
+    "queued",
+    dir,
+    "ship it",
+    null,
+    "high",
+    "the owner",
+    added,
+    null,
+    null,
+    null,
+    null,
+    null,
+  );
+  insert.run(
+    "running-one",
+    "running",
+    dir,
+    null,
+    null,
+    null,
+    null,
+    added,
+    file,
+    BRIEF_SHA,
+    "s1",
+    added,
+    null,
+  );
+  insert.run("review-one", "review", dir, null, null, null, "ci", later, file, BRIEF_SHA, null, later, later);
+  db.run("INSERT INTO task_after VALUES ('queued-one', 'running-one')");
+  db.close();
+  const migrated = {
+    repo: dir,
+    brief: file,
+    briefSha: BRIEF_SHA,
+    added,
+    started: added,
+    briefChanged: false,
+  };
+  expect(listing(run(w, w.root, ["list"]))).toEqual({
+    tasks: [
+      { ...migrated, ...UNQUEUED, name: "running-one", state: "running", session: "s1" },
+      {
+        ...migrated,
+        ...UNQUEUED,
+        name: "review-one",
+        state: "review",
+        waits: "ci",
+        added: later,
+        started: later,
+        session: null,
+        reviewed: later,
+      },
+    ],
+    ready: [],
+    waiting: [
+      {
+        name: "queued-one",
+        state: "queued",
+        repo: dir,
+        goal: "ship it",
+        plan: null,
+        priority: "high",
+        waits: "the owner",
+        added,
+        after: ["running-one"],
+        until: null,
+        untilState: null,
+      },
+    ],
+  });
+  const reopened = new Database(path, { readonly: true });
+  expect(reopened.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(3);
+  reopened.close();
+});
+
+test("AC-22 every command runs with git as the only program on PATH, a queued check under /bin/sh included, and doctor names the hooks' missing programs", () => {
   const w = world();
   const dir = repo(w);
   const file = brief(w.root);
   const bin = binWith(w, ["git"], false);
   const options = { env: { PATH: bin } };
   for (const args of [
-    ["add", "task-c", "--repo", dir, "--goal", "g", "--plan", file, "--priority", "low"],
+    ["add", "task-c", "--repo", dir, "--goal", "g", "--plan", file, "--priority", "low", "--until", "exit 0"],
     ["start", "task-a", "--repo", dir, "--brief", file],
     ["start", "task-b", "--repo", dir, "--brief", file, "--session", "s"],
     ["wait", "task-c", "--after", "task-a", "--waits", "w"],

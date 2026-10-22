@@ -87,7 +87,15 @@ function priorityValue(command: Command, values: Parsed["values"]): Priority | n
 function withContext(runtime: Runtime, act: (context: Context) => unknown): Outcome {
   const store = openStore(storePath(runtime.env), runtime.busyWaitMs);
   try {
-    return { value: act({ store, processEnv: runtime.processEnv, now: runtime.now }), status: 0 };
+    return {
+      value: act({
+        store,
+        processEnv: runtime.processEnv,
+        now: runtime.now,
+        untilTimeoutMs: runtime.untilTimeoutMs,
+      }),
+      status: 0,
+    };
   } finally {
     closeStore(store);
   }
@@ -174,7 +182,7 @@ const listCommand: Command = {
   name: "list",
   usage: USAGE.list,
   summary:
-    "list the running and in-review tasks, flagging each whose brief changed since it started, then the queued tasks ready to start and those waiting",
+    "list the running and in-review tasks, flagging each whose brief changed since it started, then the queued tasks ready to start and those waiting, running each one's check",
   run(args, runtime) {
     noArguments(this, parsed(this, args, {}).positionals);
     return withContext(runtime, (context) => list(context));

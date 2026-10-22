@@ -11,7 +11,7 @@ Flat, so a module is found by name. A file's prefix is its module: `cli-output.t
 | `cli-contract.ts` | What a command is, and the usage errors |
 | `cli-output.ts` | Writing the JSON result line to stdout and the error line to stderr, and exiting |
 
-Another module reaches a module only through its bare-named file, so `cli`'s parts are its own and no module imports the entry. Only the entry reads the environment; it passes what the rest needs. Only `git` starts a process; among the tests, only `cli.test.ts`, which holds the one CLI runner, and the repo fixtures do. A module makes no error but a `CodedError`, and every `switch` ends in a `default` that calls `unreachable`. [`modules.test.ts`](modules.test.ts) holds each of these, and reads the table below for the modules.
+Another module reaches a module only through its bare-named file, so `cli`'s parts are its own and no module imports the entry. Only the entry reads the environment; it passes what the rest needs. Only `git` and `until` start a process; among the tests, only `cli.test.ts`, which holds the one CLI runner, and the repo fixtures do. A module makes no error but a `CodedError`, and every `switch` ends in a `default` that calls `unreachable`. [`modules.test.ts`](modules.test.ts) holds each of these, and reads the table below for the modules.
 
 ## Modules
 
@@ -20,7 +20,8 @@ Another module reaches a module only through its bare-named file, so `cli`'s par
 | `cli` | The `agent-task` command line, over the domain below |
 | `tasks` | The domain: `add`, `start`, `wait`, `review`, `list`, `stop` and `done`, the `invalid_name` refusal of a name, the `blocked` refusal of a start, raised from what the store's start statement reports, and the commands each state admits, which every state refusal names |
 | `store` | The SQLite store: opening it, its schema and version, the migrations from versions 1 and 2, the `TaskName` and `Priority` types and their rules, and the statements that insert, replace, start, wait, review, stop, remove and read tasks with the names they wait after, returning the row or `null`; the start statement reports the started row or the held names that block it |
-| `git` | Run git and read what it prints: a path's main working tree and a file's blob sha; the only module that starts a process |
+| `git` | Run git and read what it prints: a path's main working tree and a file's blob sha |
+| `until` | Run a queued task's check, `/bin/sh -c` of the command in the task's repository with the timeout passed in, and say whether it was met, unmet, timed out or failed |
 | `doctor` | `doctor`: what agent-task and its plugin need, judged from the store and its version, each task's repository, each running or in-review task's brief, each plan a task names, git and the directories on `PATH`, each check with its state and fix; it writes no task and no schema |
 | `paths` | The data directory and the store's path, from the environment the entry passes in |
 | `file` | `permits`: whether a path is a file this process may open with a given access mode |

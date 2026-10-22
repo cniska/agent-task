@@ -25,11 +25,13 @@ import {
   type TaskName,
   taskByName,
 } from "./store";
+import { runCheck, type UntilState } from "./until";
 
 export type Context = {
   readonly store: Store;
   readonly processEnv: ProcessEnv;
   readonly now: () => Date;
+  readonly untilTimeoutMs: number;
 };
 
 type State = Task["state"];
@@ -214,26 +216,36 @@ export function review({ store, now }: Context, raw: string): InReview {
 
 type Listed = Started & { readonly briefChanged: boolean };
 
+type Checked = Queued & { readonly untilState: UntilState | null };
+
 export type Listing = {
   readonly tasks: readonly Listed[];
-  readonly ready: readonly Queued[];
-  readonly waiting: readonly Queued[];
+  readonly ready: readonly Checked[];
+  readonly waiting: readonly Checked[];
 };
 
-function waitsForNothing(task: Queued): boolean {
-  return task.after.length === 0 && task.waits === null;
+function checked(task: Queued, { processEnv, untilTimeoutMs }: Context): Checked {
+  const untilState = task.until === null ? null : runCheck(task.until, task.repo, processEnv, untilTimeoutMs);
+  return { ...task, untilState };
 }
 
-export function list({ store, processEnv }: Context): Listing {
+function isReady(task: Checked): boolean {
+  if (task.after.length > 0) return false;
+  if (task.untilState !== null) return task.untilState === "met";
+  return task.waits === null;
+}
+
+export function list(context: Context): Listing {
+  const { store, processEnv } = context;
   const tasks = startedTasks(store).map((task) => ({
     ...task,
     briefChanged: blobSha(task.brief, processEnv) !== task.briefSha,
   }));
-  const queued = queuedTasks(store);
+  const queued = queuedTasks(store).map((task) => checked(task, context));
   return {
     tasks,
-    ready: queued.filter(waitsForNothing),
-    waiting: queued.filter((task) => !waitsForNothing(task)),
+    ready: queued.filter(isReady),
+    waiting: queued.filter((task) => !isReady(task)),
   };
 }
 

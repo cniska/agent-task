@@ -51,7 +51,7 @@ claude plugin install cniska-task@cniska
 
 Agents running in parallel on one machine need one record of which task each is on, which work came back for review and what waits to start next. A brief edited while its task runs leaves the agent working from instructions no one can see anymore, so agent-task records the brief's sha when the task starts and its plugin refuses the edit.
 
-agent-task is the record of the work on this machine, not an issue tracker such as Linear: it keeps nothing of a task once it is removed, and it depends on git alone.
+agent-task is the record of the work on this machine, not an issue tracker such as Linear: it keeps nothing of a task once it is removed, and it depends on git and `/bin/sh` alone.
 
 ## Commands
 
@@ -61,7 +61,7 @@ agent-task is the record of the work on this machine, not an issue tracker such 
 | `agent-task start <name> --repo <path> --brief <file> [--session <id>]` | Run a task, new or queued, from its brief |
 | `agent-task wait <name> [--after <name>]... [--waits <text>] [--until <command>]` | Replace what a task waits for |
 | `agent-task review <name>` | Record that a running task was handed back for review |
-| `agent-task list` | List the running and in-review tasks, then the queue |
+| `agent-task list` | List the running and in-review tasks, then the queue, running each queued task's check |
 | `agent-task stop <name>` | Take a running or in-review task back to queued |
 | `agent-task done <name>` | Remove a task in any state |
 | `agent-task doctor` | Check what agent-task and its plugin need |
