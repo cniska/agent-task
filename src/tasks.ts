@@ -43,7 +43,7 @@ export const USAGE = {
   start: "agent-task start <name> --repo <path> --brief <file> [--session <id>]",
   wait: "agent-task wait <name> [--after <name>]... [--waits <text>] [--until <command>]",
   review: "agent-task review <name>",
-  list: "agent-task list",
+  list: "agent-task list [--started]",
   stop: "agent-task stop <name>",
   done: "agent-task done <name>",
 } as const;
@@ -218,8 +218,11 @@ type Listed = Started & { readonly briefChanged: boolean };
 
 type Checked = Queued & { readonly untilState: UntilState | null };
 
-export type Listing = {
+export type StartedListing = {
   readonly tasks: readonly Listed[];
+};
+
+export type Listing = StartedListing & {
   readonly ready: readonly Checked[];
   readonly waiting: readonly Checked[];
 };
@@ -235,15 +238,18 @@ function isReady(task: Checked): boolean {
   return task.waits === null;
 }
 
-export function list(context: Context): Listing {
-  const { store, processEnv } = context;
+export function listStarted({ store, processEnv }: Context): StartedListing {
   const tasks = startedTasks(store).map((task) => ({
     ...task,
     briefChanged: blobSha(task.brief, processEnv) !== task.briefSha,
   }));
-  const queued = queuedTasks(store).map((task) => checked(task, context));
+  return { tasks };
+}
+
+export function list(context: Context): Listing {
+  const queued = queuedTasks(context.store).map((task) => checked(task, context));
   return {
-    tasks,
+    ...listStarted(context),
     ready: queued.filter(isReady),
     waiting: queued.filter((task) => !isReady(task)),
   };

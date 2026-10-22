@@ -61,7 +61,7 @@ agent-task is the record of the work on this machine, not an issue tracker such 
 | `agent-task start <name> --repo <path> --brief <file> [--session <id>]` | Run a task, new or queued, from its brief |
 | `agent-task wait <name> [--after <name>]... [--waits <text>] [--until <command>]` | Replace what a task waits for |
 | `agent-task review <name>` | Record that a running task was handed back for review |
-| `agent-task list` | List the running and in-review tasks, then the queue, running each queued task's check |
+| `agent-task list [--started]` | List the running and in-review tasks, then the queue, running each queued task's check; `--started` lists the started tasks alone |
 | `agent-task stop <name>` | Take a running or in-review task back to queued |
 | `agent-task done <name>` | Remove a task in any state |
 | `agent-task doctor` | Check what agent-task and its plugin need |

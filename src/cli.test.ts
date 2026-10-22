@@ -48,6 +48,14 @@ describe("the cli", () => {
     });
   });
 
+  test("prints the started tasks alone for list --started", () => {
+    expect(cli("list", "--started")).toEqual({
+      status: 0,
+      stdout: '{"command":"list","ok":true,"result":{"tasks":[]}}\n',
+      stderr: "",
+    });
+  });
+
   test("prints doctor's report as a result on stdout, exit 1 when a check fails", () => {
     const run = cliWith({ PATH: "" }, "doctor");
     expect([run.status, run.stderr]).toEqual([1, ""]);
@@ -99,6 +107,8 @@ describe("the cli", () => {
       ["start", "a"],
       ["start", "a", "b", "--repo", ".", "--brief", "x"],
       ["list", "extra"],
+      ["list", "--started", "extra"],
+      ["list", "--queued"],
       ["doctor", "extra"],
       ["start", "a", "--repo", ".", "--brief", "x", "--session", " "],
       ["review"],

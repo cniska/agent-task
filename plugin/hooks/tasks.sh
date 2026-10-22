@@ -22,5 +22,5 @@ hook_input() {
 }
 
 listed_tasks() {
-  agent-task list 2>/dev/null
+  agent-task list --started 2>/dev/null
 }

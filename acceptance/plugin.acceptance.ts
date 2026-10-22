@@ -1,9 +1,20 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { binWith, brief, type Ran, removeScratchDirs, repo, result, run, type World, world } from "./harness";
+import {
+  binWith,
+  brief,
+  listing,
+  type Ran,
+  removeScratchDirs,
+  repo,
+  result,
+  run,
+  type World,
+  world,
+} from "./harness";
 
 afterEach(removeScratchDirs);
 
@@ -155,7 +166,9 @@ test("AC-24 the session hook puts the running and in-review tasks in context whe
   for (const cwd of [briefs, dir]) {
     const text = context(sessionStart(w, bin, cwd));
     const [heading, listed, closing] = text.split("\n");
-    expect(heading).toBe("cniska-task: the running and in-review tasks, as agent-task list prints them:");
+    expect(heading).toBe(
+      "cniska-task: the running and in-review tasks, as agent-task list --started prints them:",
+    );
     expect(JSON.parse(listed ?? "")).toMatchObject({
       tasks: [
         { name: "task-a", state: "running", brief: amended, briefChanged: true },
@@ -204,4 +217,28 @@ test("AC-25 both hooks print nothing and exit 0 over a store of a schema version
       expect(ran.stderr.split("\n")).toHaveLength(2);
     }
   }
+});
+
+test("AC-34 list --started prints the started tasks alone and runs no queued task's check, and neither hook runs one", () => {
+  const w = world();
+  const bin = binWith(w, ON_PATH, true);
+  const dir = repo(w);
+  const file = brief(dir, "brief.md");
+  result(run(w, w.root, ["start", "task-a", "--repo", dir, "--brief", file]));
+  result(run(w, w.root, ["add", "marking", "--repo", dir, "--goal", "mark", "--until", ": > marker"]));
+  const marker = join(dir, "marker");
+  const started = result(run(w, w.root, ["list", "--started"]));
+  expect(Object.keys(started)).toEqual(["tasks"]);
+  expect(started.tasks).toMatchObject([
+    { name: "task-a", state: "running", brief: file, briefChanged: false },
+  ]);
+  expect(existsSync(marker)).toBe(false);
+  expect(denial(edit(w, bin, dir, "Edit", file))).toContain("agent-task stop task-a;");
+  expect(context(sessionStart(w, bin, dir))).toContain('"name":"task-a"');
+  expect(existsSync(marker)).toBe(false);
+  const misused = run(w, w.root, ["list", "--started", "extra"]);
+  expect([misused.exitCode, misused.stdout]).toEqual([2, ""]);
+  expect(JSON.parse(misused.stderr)).toMatchObject({ error: { kind: "usage", code: "bad_arguments" } });
+  expect(listing(run(w, w.root, ["list"])).ready).toMatchObject([{ name: "marking", untilState: "met" }]);
+  expect(existsSync(marker)).toBe(true);
 });

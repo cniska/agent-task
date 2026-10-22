@@ -1,9 +1,20 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { brief, git, named, removeScratchDirs, repo, scratchDir } from "./repo.test-support";
 import { insertQueued, openStore, taskByName } from "./store";
-import { type AddRequest, add, type Context, done, list, review, start, stop, wait } from "./tasks";
+import {
+  type AddRequest,
+  add,
+  type Context,
+  done,
+  list,
+  listStarted,
+  review,
+  start,
+  stop,
+  wait,
+} from "./tasks";
 
 afterAll(removeScratchDirs);
 
@@ -443,6 +454,17 @@ describe("list", () => {
     expect(list(ctx).waiting.map(({ name, untilState }) => [name, untilState])).toEqual([
       [named("slow"), "timed_out"],
     ]);
+  });
+
+  test("lists the started tasks alone on request, reading no queued task and running no check", () => {
+    const ctx = context();
+    const a = started(ctx, "task-a");
+    const queued = added(ctx, "marking", { until: ": > marker" });
+    const marker = join(queued.dir, "marker");
+    expect(listStarted(ctx)).toEqual({ tasks: [{ ...a.task, briefChanged: false }] });
+    expect(existsSync(marker)).toBe(false);
+    list(ctx);
+    expect(existsSync(marker)).toBe(true);
   });
 
   test("splits the queued into ready and waiting, each by priority with none last, then added time, then name", () => {

@@ -4,7 +4,7 @@ set -uo pipefail
 source "${BASH_SOURCE[0]%/*}/tasks.sh"
 
 readonly UNREAD="the session was not told which tasks are running or in review"
-readonly HEADING="cniska-task: the running and in-review tasks, as agent-task list prints them:"
+readonly HEADING="cniska-task: the running and in-review tasks, as agent-task list --started prints them:"
 readonly CLOSING="A running or in-review task's brief does not change under it: the plugin denies an edit to one, naming agent-task stop, the edit and agent-task start again."
 
 working_directory() {

@@ -99,7 +99,7 @@ describe("doctor", () => {
         name: "store",
         state: "warn",
         detail: `${path} is a version ${version} store; this agent-task reads version 3`,
-        fix: "run agent-task list, which migrates it, then run agent-task doctor again",
+        fix: "run agent-task list [--started], which migrates it, then run agent-task doctor again",
       });
       expect(readFileSync(path).equals(bytes)).toBe(true);
     }

@@ -5,13 +5,13 @@ import { messageOf } from "./coded-error";
 import { DOCTOR_USAGE, doctor } from "./doctor";
 import { storePath } from "./paths";
 import { closeStore, isPriority, openStore, type Priority } from "./store";
-import { add, type Context, done, list, review, start, stop, USAGE, wait } from "./tasks";
+import { add, type Context, done, list, listStarted, review, start, stop, USAGE, wait } from "./tasks";
 
-type Flags = Readonly<Record<string, { readonly type: "string"; readonly multiple?: boolean }>>;
+type Flags = Readonly<Record<string, { readonly type: "string" | "boolean"; readonly multiple?: boolean }>>;
 
 type Parsed = {
   readonly positionals: readonly string[];
-  readonly values: Readonly<Record<string, string | readonly string[] | undefined>>;
+  readonly values: Readonly<Record<string, string | boolean | readonly (string | boolean)[] | undefined>>;
 };
 
 function parsed(command: Command, args: readonly string[], options: Flags): Parsed {
@@ -48,18 +48,20 @@ function oneName(command: Command, positionals: readonly string[]): string {
   return name;
 }
 
+function isText(value: unknown): value is string {
+  return typeof value === "string" && value.trim() !== "";
+}
+
 function oneValue(command: Command, values: Parsed["values"], flag: string): string {
   const value = values[flag];
-  if (typeof value !== "string" || value.trim() === "")
-    refuseArguments(command, `needs --${flag} with a value`);
+  if (!isText(value)) refuseArguments(command, `needs --${flag} with a value`);
   return value;
 }
 
 function optionalValue(command: Command, values: Parsed["values"], flag: string): string | null {
   const value = values[flag];
   if (value === undefined) return null;
-  if (typeof value !== "string" || value.trim() === "")
-    refuseArguments(command, `needs a value after --${flag}`);
+  if (!isText(value)) refuseArguments(command, `needs a value after --${flag}`);
   return value;
 }
 
@@ -67,7 +69,8 @@ function manyValues(command: Command, values: Parsed["values"], flag: string): r
   const value = values[flag];
   if (value === undefined) return [];
   const list = typeof value === "string" ? [value] : value;
-  if (list.some((entry) => entry.trim() === "")) refuseArguments(command, `needs a value after --${flag}`);
+  if (typeof list === "boolean" || !list.every(isText))
+    refuseArguments(command, `needs a value after --${flag}`);
   return list;
 }
 
@@ -182,10 +185,12 @@ const listCommand: Command = {
   name: "list",
   usage: USAGE.list,
   summary:
-    "list the running and in-review tasks, flagging each whose brief changed since it started, then the queued tasks ready to start and those waiting, running each one's check",
+    "list the running and in-review tasks, flagging each whose brief changed since it started, then the queued tasks ready to start and those waiting, running each one's check; --started lists the running and in-review tasks alone and runs no check",
   run(args, runtime) {
-    noArguments(this, parsed(this, args, {}).positionals);
-    return withContext(runtime, (context) => list(context));
+    const { positionals, values } = parsed(this, args, { started: { type: "boolean" } });
+    noArguments(this, positionals);
+    const started = values.started === true;
+    return withContext(runtime, (context) => (started ? listStarted(context) : list(context)));
   },
 };
 
