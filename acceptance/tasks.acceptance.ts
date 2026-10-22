@@ -840,19 +840,25 @@ test("AC-22 every command runs with git as the only program on PATH, a queued ch
   const file = brief(w.root);
   const bin = binWith(w, ["git"], false);
   const options = { env: { PATH: bin } };
+  const succeeds = (args: readonly string[]) => expect(run(w, w.root, args, options).exitCode).toBe(0);
   for (const args of [
     ["add", "task-c", "--repo", dir, "--goal", "g", "--plan", file, "--priority", "low", "--until", "exit 0"],
     ["start", "task-a", "--repo", dir, "--brief", file],
     ["start", "task-b", "--repo", dir, "--brief", file, "--session", "s"],
-    ["wait", "task-c", "--after", "task-a", "--waits", "w"],
+    ["wait", "task-c", "--after", "task-a", "--waits", "w", "--until", "exit 0"],
     ["review", "task-b"],
-    ["list"],
+  ])
+    succeeds(args);
+  expect(listing(run(w, w.root, ["list"], options)).waiting).toMatchObject([
+    { name: "task-c", untilState: "met" },
+  ]);
+  for (const args of [
     ["stop", "task-a"],
     ["done", "task-a"],
     ["done", "task-b"],
     ["done", "task-c"],
   ])
-    expect(run(w, w.root, args, options).exitCode).toBe(0);
+    succeeds(args);
   const { checks } = result(run(w, w.root, ["doctor"], options));
   if (!Array.isArray(checks)) throw new Error("doctor prints its checks");
   const byName = new Map(checks.map((check) => [check.name, check]));
