@@ -6,7 +6,7 @@
 
 agent-task records each coding-agent task on this machine, with the repository its work lands in, from the time it is queued or started until its work is over.
 
-- `agent-task add <name>` queues a task with its goal, plan, priority and what it waits for, and `list` prints the queue in the order to start it.
+- `agent-task add <name>` queues a task with its goal, plan, priority, what it waits for and the check that says its wait is met, and `list` prints the queue in the order to start it.
 - `agent-task start <name>` runs a task from a brief, recording the brief's path and git blob sha and the session that started it; `review` marks it handed back for review, and `list` flags a brief that changed since.
 - `agent-task done <name>` removes a task however its work ended; whether the work landed is git's to show.
 - The `cniska-task` Claude Code plugin keeps a running or in-review task's brief from changing under the task.
@@ -59,7 +59,7 @@ agent-task is the record of the work on this machine, not an issue tracker such 
 | --- | --- |
 | `agent-task add <name> --repo <path> --goal <text> [...]` | Queue a task, or replace a queued one |
 | `agent-task start <name> --repo <path> --brief <file> [--session <id>]` | Run a task, new or queued, from its brief |
-| `agent-task wait <name> [--after <name>]... [--waits <text>]` | Replace what a task waits for |
+| `agent-task wait <name> [--after <name>]... [--waits <text>] [--until <command>]` | Replace what a task waits for |
 | `agent-task review <name>` | Record that a running task was handed back for review |
 | `agent-task list` | List the running and in-review tasks, then the queue |
 | `agent-task stop <name>` | Take a running or in-review task back to queued |

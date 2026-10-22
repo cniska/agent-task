@@ -177,7 +177,7 @@ test("AC-25 both hooks print nothing and exit 0 over a store of a schema version
   const withCli = binWith(w, ON_PATH, true);
   result(run(w, w.root, ["start", "task-a", "--repo", dir, "--brief", file]));
   const db = new Database(join(w.root, "data", "agent-task", "tasks.db"));
-  db.run("PRAGMA user_version = 3");
+  db.run("PRAGMA user_version = 4");
   db.close();
   expect(edit(w, withCli, dir, "Edit", file)).toEqual(SILENT);
   expect(sessionStart(w, withCli, dir)).toEqual(SILENT);

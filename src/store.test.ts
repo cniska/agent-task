@@ -28,7 +28,7 @@ const FIELDS = { goal: null, plan: null, priority: null, waits: null };
 
 const ADDED = { name: named("a"), repo: "/r", ...FIELDS, added: "2026-10-16T09:00:00.000Z" };
 
-const QUEUED = { ...ADDED, after: [] };
+const QUEUED = { ...ADDED, after: [], until: null };
 
 const STARTED = {
   brief: "/r/brief.md",
@@ -62,10 +62,43 @@ INSERT INTO task_commits VALUES ('old-done', 'c1');
 PRAGMA user_version = 1;
 `;
 
-function versionOneStore(): string {
+const VERSION_TWO = `
+CREATE TABLE tasks (
+  name TEXT PRIMARY KEY,
+  state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'review')),
+  repo TEXT NOT NULL,
+  goal TEXT,
+  plan TEXT,
+  priority TEXT CHECK (priority IN ('urgent', 'high', 'medium', 'low')),
+  waits TEXT,
+  added_at TEXT NOT NULL,
+  brief TEXT,
+  brief_sha TEXT,
+  session TEXT,
+  started_at TEXT,
+  reviewed_at TEXT,
+  CHECK ((state = 'queued') = (brief IS NULL)),
+  CHECK ((state = 'review') = (reviewed_at IS NOT NULL)),
+  CHECK ((brief IS NULL) = (brief_sha IS NULL)),
+  CHECK ((brief IS NULL) = (started_at IS NULL)),
+  CHECK (brief IS NOT NULL OR session IS NULL)
+) STRICT;
+CREATE TABLE task_after (
+  task TEXT NOT NULL REFERENCES tasks (name) ON DELETE CASCADE,
+  after TEXT NOT NULL,
+  PRIMARY KEY (task, after)
+) STRICT;
+INSERT INTO tasks VALUES ('queued-one', 'queued', '/r', 'ship it', '/r/plan.md', 'high', 'the owner', '2026-10-15T08:00:00.000Z', NULL, NULL, NULL, NULL, NULL);
+INSERT INTO tasks VALUES ('running-one', 'running', '/r', NULL, NULL, NULL, NULL, '2026-10-15T09:00:00.000Z', '/r/run.md', 'sha1', 's1', '2026-10-15T09:00:00.000Z', NULL);
+INSERT INTO tasks VALUES ('review-one', 'review', '/r', NULL, NULL, NULL, 'ci', '2026-10-15T10:00:00.000Z', '/r/rev.md', 'sha2', NULL, '2026-10-15T10:00:00.000Z', '2026-10-15T11:00:00.000Z');
+INSERT INTO task_after VALUES ('queued-one', 'running-one');
+PRAGMA user_version = 2;
+`;
+
+function storeOf(schema: string): string {
   const path = join(scratchDir(), "tasks.db");
   const db = new Database(path);
-  db.run(VERSION_ONE);
+  db.run(schema);
   db.close();
   return path;
 }
@@ -102,9 +135,9 @@ describe("the store", () => {
     expect(taskByName(store, named("c"))).toBeNull();
   });
 
-  test("replaces only a queued task's fields and after names, keeping its added time", () => {
+  test("replaces only a queued task's fields, after names and check, keeping its added time", () => {
     const store = freshStore();
-    insertQueued(store, { ...QUEUED, name: named("b"), after: [named("a")] });
+    insertQueued(store, { ...QUEUED, name: named("b"), after: [named("a")], until: "exit 1" });
     insertRunning(store, RUNNING);
     insertQueued(store, { ...QUEUED, name: named("c") });
     const replaced = {
@@ -115,6 +148,7 @@ describe("the store", () => {
       priority: "low" as const,
       waits: null,
       after: [named("c")],
+      until: "exit 0",
     };
     expect(replaceQueued(store, replaced)).toEqual({ ...replaced, added: QUEUED.added, state: "queued" });
     expect(taskByName(store, named("b"))).toMatchObject({ after: [named("c")] });
@@ -123,7 +157,7 @@ describe("the store", () => {
     expect(taskByName(store, named("a"))).toEqual({ ...RUNNING, state: "running" });
   });
 
-  test("starts only a queued task, keeping its fields, taking the repo and dropping its after names, and shows only the after names the store holds", () => {
+  test("starts only a queued task, keeping its fields, taking the repo and dropping its after names and check, and shows only the after names the store holds", () => {
     const store = freshStore();
     const queued = {
       ...QUEUED,
@@ -131,6 +165,7 @@ describe("the store", () => {
       priority: "urgent" as const,
       waits: "w",
       after: [named("b"), named("gone")],
+      until: "exit 0",
     };
     expect(insertQueued(store, queued)).toMatchObject({ after: [] });
     insertQueued(store, { ...QUEUED, name: named("b") });
@@ -141,38 +176,49 @@ describe("the store", () => {
     expect(taskByName(store, named("a"))).toEqual(held);
     removeTask(store, named("b"));
     expect(taskByName(store, named("a"))).toMatchObject({ after: [] });
-    const { after, ...fields } = queued;
-    expect(after).toHaveLength(2);
+    const { after, until, ...fields } = queued;
+    expect([after.length, until]).toEqual([2, "exit 0"]);
     expect(startQueued(store, start)).toEqual({
       kind: "started",
       task: { ...fields, ...start, state: "running" },
     });
     expect(startQueued(store, start)).toBeNull();
     expect(startQueued(store, { ...start, name: named("missing") })).toBeNull();
-    expect(stopTask(store, named("a"))).toEqual({ ...queued, repo: "/moved", after: [], state: "queued" });
+    expect(stopTask(store, named("a"))).toEqual({
+      ...queued,
+      repo: "/moved",
+      after: [],
+      until: null,
+      state: "queued",
+    });
   });
 
-  test("sets what a task waits for: the text in any state, the after names on a queued task only, and refuses after names on a running task", () => {
+  test("sets what a task waits for: the text in any state, the after names and the check on a queued task only, and refuses either on a running task", () => {
     const store = freshStore();
     insertQueued(store, { ...QUEUED, after: [named("x")] });
     insertRunning(store, { ...RUNNING, name: named("r") });
     insertQueued(store, { ...QUEUED, name: named("y") });
-    expect(setWaiting(store, named("a"), { after: [named("y")], waits: "owner" })).toEqual({
+    expect(setWaiting(store, named("a"), { after: [named("y")], waits: "owner", until: "exit 0" })).toEqual({
       ...QUEUED,
       after: [named("y")],
       waits: "owner",
+      until: "exit 0",
       state: "queued",
     });
-    expect(setWaiting(store, named("a"), { after: [], waits: null })).toEqual({ ...QUEUED, state: "queued" });
-    expect(setWaiting(store, named("r"), { after: [], waits: "ci" })).toEqual({
+    expect(setWaiting(store, named("a"), { after: [], waits: null, until: null })).toEqual({
+      ...QUEUED,
+      state: "queued",
+    });
+    expect(setWaiting(store, named("r"), { after: [], waits: "ci", until: null })).toEqual({
       ...RUNNING,
       name: named("r"),
       waits: "ci",
       state: "running",
     });
-    expect(setWaiting(store, named("r"), { after: [named("a")], waits: null })).toBeNull();
+    expect(setWaiting(store, named("r"), { after: [named("a")], waits: null, until: null })).toBeNull();
+    expect(setWaiting(store, named("r"), { after: [], waits: null, until: "exit 0" })).toBeNull();
     expect(taskByName(store, named("r"))).toMatchObject({ waits: "ci" });
-    expect(setWaiting(store, named("missing"), { after: [], waits: null })).toBeNull();
+    expect(setWaiting(store, named("missing"), { after: [], waits: null, until: null })).toBeNull();
   });
 
   test("takes only a running task to review, listing it among the started by start time", () => {
@@ -261,6 +307,13 @@ describe("the store", () => {
     expect(() => store.db.run("UPDATE tasks SET reviewed_at = 'now' WHERE name = 'a'")).toThrow();
     expect(() => store.db.run("UPDATE tasks SET priority = 'top' WHERE name = 'a'")).toThrow();
     expect(() => store.db.run("INSERT INTO task_after VALUES ('nobody', 'a')")).toThrow();
+    expect(() => store.db.run("UPDATE tasks SET until = 'exit 0' WHERE name = 'a'")).toThrow();
+    const migrated = openStore(storeOf(VERSION_TWO), WAIT);
+    expect(() => migrated.db.run("UPDATE tasks SET until = 'exit 0' WHERE name = 'running-one'")).toThrow();
+    expect(() => migrated.db.run("UPDATE tasks SET until = 'exit 0' WHERE name = 'review-one'")).toThrow();
+    migrated.db.run("UPDATE tasks SET until = 'exit 0' WHERE name = 'queued-one'");
+    expect(taskByName(migrated, named("queued-one"))).toMatchObject({ until: "exit 0" });
+    closeStore(migrated);
     expect(() =>
       store.db.run(
         "UPDATE tasks SET state = 'queued', brief = NULL, brief_sha = NULL, started_at = NULL WHERE name = 'a'",
@@ -269,7 +322,7 @@ describe("the store", () => {
   });
 
   test("migrates a version-1 store, keeping its running tasks with their start time as the added time and no session, goal, plan, priority or waits, and removing the ended ones", () => {
-    const path = versionOneStore();
+    const path = storeOf(VERSION_ONE);
     const store = openStore(path, WAIT);
     expect(startedTasks(store)).toEqual([
       {
@@ -291,15 +344,62 @@ describe("the store", () => {
         .query<{ n: number }, []>("SELECT count(*) AS n FROM sqlite_master WHERE name = 'task_commits'")
         .get()?.n,
     ).toBe(0);
-    expect(store.db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(2);
+    expect(store.db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(3);
     closeStore(store);
     expect(insertRunning(openStore(path, WAIT), { ...RUNNING, name: named("old-done") })).toMatchObject({
       state: "running",
     });
   });
 
+  test("migrates a version-2 store, keeping every task and its after names as they were, with no check", () => {
+    const path = storeOf(VERSION_TWO);
+    const store = openStore(path, WAIT);
+    expect(queuedTasks(store)).toEqual([
+      {
+        name: named("queued-one"),
+        state: "queued",
+        repo: "/r",
+        goal: "ship it",
+        plan: "/r/plan.md",
+        priority: "high",
+        waits: "the owner",
+        added: "2026-10-15T08:00:00.000Z",
+        after: [named("running-one")],
+        until: null,
+      },
+    ]);
+    expect(startedTasks(store)).toEqual([
+      {
+        name: named("running-one"),
+        state: "running",
+        repo: "/r",
+        ...FIELDS,
+        added: "2026-10-15T09:00:00.000Z",
+        brief: "/r/run.md",
+        briefSha: "sha1",
+        session: "s1",
+        started: "2026-10-15T09:00:00.000Z",
+      },
+      {
+        name: named("review-one"),
+        state: "review",
+        repo: "/r",
+        ...FIELDS,
+        waits: "ci",
+        added: "2026-10-15T10:00:00.000Z",
+        brief: "/r/rev.md",
+        briefSha: "sha2",
+        session: null,
+        started: "2026-10-15T10:00:00.000Z",
+        reviewed: "2026-10-15T11:00:00.000Z",
+      },
+    ]);
+    expect(store.db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(3);
+    closeStore(store);
+  });
+
   test("reads a version-1 store as migratable without changing it, and a current or absent one as itself", () => {
-    const path = versionOneStore();
+    const path = storeOf(VERSION_ONE);
     const bytes = readFileSync(path);
     expect(readStore(path, WAIT)).toEqual({ kind: "migratable", found: 1 });
     expect(readFileSync(path).equals(bytes)).toBe(true);
@@ -314,11 +414,11 @@ describe("the store", () => {
   test("refuses a store of another version and a file that is no store, leaving each as it was", () => {
     const newer = join(scratchDir(), "tasks.db");
     const db = new Database(newer);
-    db.run("PRAGMA user_version = 3");
+    db.run("PRAGMA user_version = 4");
     db.close();
     const bytes = readFileSync(newer);
     expect(() => openStore(newer, WAIT)).toThrow(
-      expect.objectContaining({ code: "store_version", meta: { path: newer, found: 3, expected: 2 } }),
+      expect.objectContaining({ code: "store_version", meta: { path: newer, found: 4, expected: 3 } }),
     );
     expect(() => readStore(newer, WAIT)).toThrow(expect.objectContaining({ code: "store_version" }));
     expect(readFileSync(newer).equals(bytes)).toBe(true);

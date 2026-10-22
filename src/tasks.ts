@@ -37,9 +37,9 @@ type State = Task["state"];
 type Act = "add" | "start" | "wait" | "review" | "stop" | "done";
 
 export const USAGE = {
-  add: "agent-task add <name> --repo <path> --goal <text> [--plan <file>] [--priority urgent|high|medium|low] [--after <name>]... [--waits <text>]",
+  add: "agent-task add <name> --repo <path> --goal <text> [--plan <file>] [--priority urgent|high|medium|low] [--after <name>]... [--waits <text>] [--until <command>]",
   start: "agent-task start <name> --repo <path> --brief <file> [--session <id>]",
-  wait: "agent-task wait <name> [--after <name>]... [--waits <text>]",
+  wait: "agent-task wait <name> [--after <name>]... [--waits <text>] [--until <command>]",
   review: "agent-task review <name>",
   list: "agent-task list",
   stop: "agent-task stop <name>",
@@ -141,6 +141,7 @@ export type AddRequest = {
   readonly priority: Priority | null;
   readonly after: readonly string[];
   readonly waits: string | null;
+  readonly until: string | null;
 };
 
 export function add({ store, processEnv, now }: Context, request: AddRequest): Queued {
@@ -158,6 +159,7 @@ export function add({ store, processEnv, now }: Context, request: AddRequest): Q
     priority: request.priority,
     waits: request.waits,
     after,
+    until: request.until,
   };
   const queued = replaceQueued(store, task) ?? insertQueued(store, { ...task, added: now().toISOString() });
   if (queued === null) throw refuseByState("add", name, taskByName(store, name));
@@ -192,12 +194,13 @@ export type WaitRequest = {
   readonly name: string;
   readonly after: readonly string[];
   readonly waits: string | null;
+  readonly until: string | null;
 };
 
 export function wait({ store }: Context, request: WaitRequest): Task {
   const name = parseName(request.name);
   const after = heldNames(store, "wait", request.after);
-  const waiting = setWaiting(store, name, { after, waits: request.waits });
+  const waiting = setWaiting(store, name, { after, waits: request.waits, until: request.until });
   if (waiting === null) throw refuseByState("wait", name, taskByName(store, name));
   return waiting;
 }

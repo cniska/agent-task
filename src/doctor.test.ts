@@ -34,7 +34,7 @@ function storeWith(dir: string, briefPath: string | null, plan: string | null = 
     waits: null,
     added: "2026-10-16T10:00:00.000Z",
   };
-  if (briefPath === null) insertQueued(store, { ...queued, after: [] });
+  if (briefPath === null) insertQueued(store, { ...queued, after: [], until: null });
   else
     insertRunning(store, {
       ...queued,
@@ -88,19 +88,21 @@ describe("doctor", () => {
     expect(store.fix).toBe(`stop and hand this error to the owner: ${directory} must be an agent-task store`);
   });
 
-  test("warns a version-1 store without changing it, naming list as the migration", () => {
-    const path = join(scratchDir(), "tasks.db");
-    const db = new Database(path);
-    db.run("PRAGMA user_version = 1");
-    db.close();
-    const bytes = readFileSync(path);
-    expect(checkOf(path, [GIT_DIR], "store")).toEqual({
-      name: "store",
-      state: "warn",
-      detail: `${path} is a version 1 store; this agent-task reads version 2`,
-      fix: "run agent-task list, which migrates it, then run agent-task doctor again",
-    });
-    expect(readFileSync(path).equals(bytes)).toBe(true);
+  test("warns a version-1 or version-2 store without changing it, naming list as the migration", () => {
+    for (const version of [1, 2]) {
+      const path = join(scratchDir(), "tasks.db");
+      const db = new Database(path);
+      db.run(`PRAGMA user_version = ${version}`);
+      db.close();
+      const bytes = readFileSync(path);
+      expect(checkOf(path, [GIT_DIR], "store")).toEqual({
+        name: "store",
+        state: "warn",
+        detail: `${path} is a version ${version} store; this agent-task reads version 3`,
+        fix: "run agent-task list, which migrates it, then run agent-task doctor again",
+      });
+      expect(readFileSync(path).equals(bytes)).toBe(true);
+    }
   });
 
   test("passes a repository that is its own main working tree, origin or not, and warns one that is no checkout, naming done", () => {
@@ -148,7 +150,7 @@ describe("doctor", () => {
       name: "task-a plan",
       state: "warn",
       detail: `${missing} is not a readable file`,
-      fix: `put the plan back at ${missing}, or agent-task add task-a --repo <path> --goal <text> [--plan <file>] [--priority urgent|high|medium|low] [--after <name>]... [--waits <text>] again with another --plan or none`,
+      fix: `put the plan back at ${missing}, or agent-task add task-a --repo <path> --goal <text> [--plan <file>] [--priority urgent|high|medium|low] [--after <name>]... [--waits <text>] [--until <command>] again with another --plan or none`,
     });
   });
 

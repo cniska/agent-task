@@ -97,7 +97,7 @@ const addCommand: Command = {
   name: "add",
   usage: USAGE.add,
   summary:
-    "queue a task: its repository, goal, plan, priority and what it waits for; on a queued name, replace them",
+    "queue a task: its repository, goal, plan, priority, what it waits for and the check that says its wait is met; on a queued name, replace them",
   run(args, runtime) {
     const { positionals, values } = parsed(this, args, {
       repo: { type: "string" },
@@ -106,6 +106,7 @@ const addCommand: Command = {
       priority: { type: "string" },
       after: { type: "string", multiple: true },
       waits: { type: "string" },
+      until: { type: "string" },
     });
     const name = oneName(this, positionals);
     const repo = resolve(runtime.cwd, oneValue(this, values, "repo"));
@@ -115,8 +116,9 @@ const addCommand: Command = {
     const priority = priorityValue(this, values);
     const after = afterNames(this, values, name);
     const waits = optionalValue(this, values, "waits");
+    const until = optionalValue(this, values, "until");
     return withContext(runtime, (context) =>
-      add(context, { name, repo, goal, plan, priority, after, waits }),
+      add(context, { name, repo, goal, plan, priority, after, waits, until }),
     );
   },
 };
@@ -142,16 +144,19 @@ const startCommand: Command = {
 const waitCommand: Command = {
   name: "wait",
   usage: USAGE.wait,
-  summary: "replace what a task waits for: tasks to land, on a queued task, and anything else as text",
+  summary:
+    "replace what a task waits for: tasks to land and a check that says the wait is met, on a queued task, and anything else as text",
   run(args, runtime) {
     const { positionals, values } = parsed(this, args, {
       after: { type: "string", multiple: true },
       waits: { type: "string" },
+      until: { type: "string" },
     });
     const name = oneName(this, positionals);
     const after = afterNames(this, values, name);
     const waits = optionalValue(this, values, "waits");
-    return withContext(runtime, (context) => wait(context, { name, after, waits }));
+    const until = optionalValue(this, values, "until");
+    return withContext(runtime, (context) => wait(context, { name, after, waits, until }));
   },
 };
 

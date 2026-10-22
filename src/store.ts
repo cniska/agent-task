@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import { invariant, unreachable } from "./assert";
 import { BUG, faults, refusals } from "./coded-error";
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 const PRIORITIES = ["urgent", "high", "medium", "low"] as const;
 
@@ -15,6 +15,8 @@ export function isPriority(value: string): value is Priority {
 }
 
 const PRIORITY_RANK = `CASE priority ${PRIORITIES.map((priority, rank) => `WHEN '${priority}' THEN ${rank}`).join(" ")} ELSE ${PRIORITIES.length} END`;
+
+const UNTIL_COLUMN = "until TEXT CHECK (state = 'queued' OR until IS NULL)";
 
 const TABLES = `
 CREATE TABLE tasks (
@@ -31,6 +33,7 @@ CREATE TABLE tasks (
   session TEXT,
   started_at TEXT,
   reviewed_at TEXT,
+  ${UNTIL_COLUMN},
   CHECK ((state = 'queued') = (brief IS NULL)),
   CHECK ((state = 'review') = (reviewed_at IS NOT NULL)),
   CHECK ((brief IS NULL) = (brief_sha IS NULL)),
@@ -58,10 +61,24 @@ DROP TABLE tasks_v1;
 ${VERSION_PRAGMA}
 `;
 
-const MIGRATABLE_VERSION = 1;
+const MIGRATE_FROM_VERSION_TWO = `
+ALTER TABLE tasks ADD COLUMN ${UNTIL_COLUMN};
+${VERSION_PRAGMA}
+`;
+
+const MIGRATIONS = {
+  1: MIGRATE_FROM_VERSION_ONE,
+  2: MIGRATE_FROM_VERSION_TWO,
+} as const;
+
+type MigratableVersion = keyof typeof MIGRATIONS;
+
+function isMigratable(version: number): version is MigratableVersion {
+  return Object.hasOwn(MIGRATIONS, version);
+}
 
 const TASK_COLUMNS =
-  "name, state, repo, goal, plan, priority, waits, added_at, brief, brief_sha, session, started_at, reviewed_at";
+  "name, state, repo, goal, plan, priority, waits, added_at, brief, brief_sha, session, started_at, reviewed_at, until";
 
 const BUSY = "SQLITE_BUSY";
 
@@ -117,7 +134,11 @@ type Added = {
   readonly added: string;
 };
 
-export type Queued = Added & { readonly state: "queued"; readonly after: readonly TaskName[] };
+export type Queued = Added & {
+  readonly state: "queued";
+  readonly after: readonly TaskName[];
+  readonly until: string | null;
+};
 
 type Briefed = Added & {
   readonly brief: string;
@@ -176,13 +197,16 @@ function connect(path: string, busyWaitMs: number, opening: Opening): Database {
   }
 }
 
-type Found = "current" | "empty" | "migratable";
+type Found =
+  | { readonly kind: "current" }
+  | { readonly kind: "empty" }
+  | { readonly kind: "migratable"; readonly found: MigratableVersion };
 
 function versionFound(db: Database, path: string): Found {
   const found = userVersion(db);
-  if (found === SCHEMA_VERSION) return "current";
-  if (found === 0 && holdsNoTables(db)) return "empty";
-  if (found === MIGRATABLE_VERSION) return "migratable";
+  if (found === SCHEMA_VERSION) return { kind: "current" };
+  if (found === 0 && holdsNoTables(db)) return { kind: "empty" };
+  if (isMigratable(found)) return { kind: "migratable", found };
   throw refuse("store_version", { path, found, expected: SCHEMA_VERSION });
 }
 
@@ -201,14 +225,14 @@ function enableWal(db: Database, busyWaitMs: number): void {
 
 function bringCurrent(db: Database, path: string): void {
   const found = versionFound(db, path);
-  switch (found) {
+  switch (found.kind) {
     case "current":
       return;
     case "empty":
       db.run(SCHEMA);
       return;
     case "migratable":
-      db.run(MIGRATE_FROM_VERSION_ONE);
+      db.run(MIGRATIONS[found.found]);
       return;
     default:
       unreachable(found);
@@ -224,7 +248,7 @@ export function openStore(path: string, busyWaitMs: number): Store {
       db.run("PRAGMA foreign_keys = ON");
       db.transaction(() => bringCurrent(db, path)).immediate();
     });
-    invariant(versionFound(db, path) === "current", "an opened store is at this version");
+    invariant(versionFound(db, path).kind === "current", "an opened store is at this version");
     return { db, path, busyWaitMs };
   } catch (error) {
     db.close();
@@ -244,9 +268,9 @@ export function readStore(path: string, busyWaitMs: number): Read {
     const found = translated({ path, busyWaitMs }, () =>
       db.transaction(() => versionFound(db, path)).deferred(),
     );
-    if (found === "current") return { kind: "open", store: { db, path, busyWaitMs } };
+    if (found.kind === "current") return { kind: "open", store: { db, path, busyWaitMs } };
     db.close();
-    return found === "migratable" ? { kind: "migratable", found: MIGRATABLE_VERSION } : { kind: "none" };
+    return found.kind === "migratable" ? { kind: "migratable", found: found.found } : { kind: "none" };
   } catch (error) {
     db.close();
     throw error;
@@ -295,7 +319,8 @@ function parseTask(value: unknown, after: readonly TaskName[]): Task {
   const briefSha = nullableText(row, "brief_sha");
   const started = nullableText(row, "started_at");
   const reviewed = nullableText(row, "reviewed_at");
-  if (state === "queued" && brief === null) return { ...added, state, after };
+  if (state === "queued" && brief === null)
+    return { ...added, state, after, until: nullableText(row, "until") };
   if (brief === null || briefSha === null || started === null)
     throw fault("row_malformed", { detail: `state ${state} does not fit its brief and times` });
   const task = { ...added, brief, briefSha, session: nullableText(row, "session"), started };
@@ -357,11 +382,14 @@ export function insertQueued(store: Store, task: NewQueued): Queued | null {
   const { db } = store;
   return immediately(store, () => {
     const row = db
-      .query<unknown, [string, string, string | null, string | null, Priority | null, string | null, string]>(
-        `INSERT INTO tasks (name, state, repo, goal, plan, priority, waits, added_at)
-         VALUES (?, 'queued', ?, ?, ?, ?, ?, ?) ON CONFLICT (name) DO NOTHING RETURNING ${TASK_COLUMNS}`,
+      .query<
+        unknown,
+        [string, string, string | null, string | null, Priority | null, string | null, string, string | null]
+      >(
+        `INSERT INTO tasks (name, state, repo, goal, plan, priority, waits, added_at, until)
+         VALUES (?, 'queued', ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (name) DO NOTHING RETURNING ${TASK_COLUMNS}`,
       )
-      .get(task.name, task.repo, task.goal, task.plan, task.priority, task.waits, task.added);
+      .get(task.name, task.repo, task.goal, task.plan, task.priority, task.waits, task.added, task.until);
     if (row === null) return null;
     setAfter(db, task.name, task.after);
     return parseQueued(row, afterOf(db, task.name));
@@ -372,11 +400,14 @@ export function replaceQueued(store: Store, task: Omit<NewQueued, "added">): Que
   const { db } = store;
   return immediately(store, () => {
     const row = db
-      .query<unknown, [string, string | null, string | null, Priority | null, string | null, string]>(
-        `UPDATE tasks SET repo = ?, goal = ?, plan = ?, priority = ?, waits = ?
+      .query<
+        unknown,
+        [string, string | null, string | null, Priority | null, string | null, string | null, string]
+      >(
+        `UPDATE tasks SET repo = ?, goal = ?, plan = ?, priority = ?, waits = ?, until = ?
          WHERE name = ? AND state = 'queued' RETURNING ${TASK_COLUMNS}`,
       )
-      .get(task.repo, task.goal, task.plan, task.priority, task.waits, task.name);
+      .get(task.repo, task.goal, task.plan, task.priority, task.waits, task.until, task.name);
     if (row === null) return null;
     setAfter(db, task.name, task.after);
     return parseQueued(row, afterOf(db, task.name));
@@ -438,7 +469,8 @@ export function startQueued(store: Store, task: Start): Starting | null {
     if (after.length > 0) return { kind: "blocked", after };
     const row = db
       .query<unknown, [string, string, string, string | null, string, string]>(
-        `UPDATE tasks SET state = 'running', repo = ?, brief = ?, brief_sha = ?, session = ?, started_at = ?
+        `UPDATE tasks SET state = 'running', repo = ?, brief = ?, brief_sha = ?, session = ?, started_at = ?,
+           until = NULL
          WHERE name = ? AND state = 'queued' RETURNING ${TASK_COLUMNS}`,
       )
       .get(task.repo, task.brief, task.briefSha, task.session, task.started, task.name);
@@ -448,16 +480,22 @@ export function startQueued(store: Store, task: Start): Starting | null {
   });
 }
 
-export type Waiting = { readonly after: readonly TaskName[]; readonly waits: string | null };
+export type Waiting = {
+  readonly after: readonly TaskName[];
+  readonly waits: string | null;
+  readonly until: string | null;
+};
 
-export function setWaiting(store: Store, name: TaskName, { after, waits }: Waiting): Task | null {
+export function setWaiting(store: Store, name: TaskName, { after, waits, until }: Waiting): Task | null {
   const { db } = store;
+  const textOnly = after.length === 0 && until === null;
   return immediately(store, () => {
     const row = db
-      .query<unknown, [string | null, string, number]>(
-        `UPDATE tasks SET waits = ? WHERE name = ? AND (state = 'queued' OR ?) RETURNING ${TASK_COLUMNS}`,
+      .query<unknown, [string | null, string | null, string, number]>(
+        `UPDATE tasks SET waits = ?, until = ? WHERE name = ? AND (state = 'queued' OR ?)
+         RETURNING ${TASK_COLUMNS}`,
       )
-      .get(waits, name, after.length === 0 ? 1 : 0);
+      .get(waits, until, name, textOnly ? 1 : 0);
     if (row === null) return null;
     setAfter(db, name, after);
     return parseTask(row, afterOf(db, name));

@@ -37,6 +37,7 @@ function request(name: string, dir: string, fields: Partial<AddRequest> = {}): A
     priority: null,
     after: [],
     waits: null,
+    until: null,
     ...fields,
   };
 }
@@ -47,7 +48,7 @@ function added(ctx: Context, name: string, fields: Partial<AddRequest> = {}) {
 }
 
 describe("add", () => {
-  test("queues a task with its main working tree, goal, plan, priority, after, waits and the time added", () => {
+  test("queues a task with its main working tree, goal, plan, priority, after, waits, check and the time added", () => {
     const ctx = context();
     const dir = repo();
     mkdirSync(join(dir, "sub"));
@@ -62,6 +63,7 @@ describe("add", () => {
         priority: "high",
         after: ["task-b"],
         waits: "the owner's word",
+        until: "test -f released",
       }),
     ).toEqual({
       name: named("task-a"),
@@ -73,12 +75,13 @@ describe("add", () => {
       waits: "the owner's word",
       added: "2026-10-16T10:00:00.000Z",
       after: [named("task-b")],
+      until: "test -f released",
     });
   });
 
   test("replaces a queued task's record on its name, keeping the time added", () => {
     const ctx = context();
-    const { dir } = added(ctx, "task-a", { priority: "low", waits: "nothing yet" });
+    const { dir } = added(ctx, "task-a", { priority: "low", waits: "nothing yet", until: "exit 1" });
     const other = repo();
     expect(add(later(ctx), request("task-a", other, { goal: "changed", after: [] }))).toEqual({
       name: named("task-a"),
@@ -90,6 +93,7 @@ describe("add", () => {
       waits: null,
       added: "2026-10-16T10:00:00.000Z",
       after: [],
+      until: null,
     });
     expect(dir).not.toBe(other);
   });
@@ -158,7 +162,7 @@ describe("start", () => {
     });
   });
 
-  test("starts a queued task, keeping its goal, plan, priority, waits and added time, taking the repo given and dropping what it waited after", () => {
+  test("starts a queued task, keeping its goal, plan, priority, waits and added time, taking the repo given and dropping what it waited after and its check", () => {
     const ctx = context();
     const dir = repo();
     added(ctx, "task-b");
@@ -172,8 +176,10 @@ describe("start", () => {
       waits: "a word",
       added: "2026-10-01T00:00:00.000Z",
       after: [named("task-b")],
+      until: "exit 0",
     });
-    expect(start(later(ctx), { name: "task-a", repo: dir, brief: brief(dir), session: "s2" })).toMatchObject({
+    const running = start(later(ctx), { name: "task-a", repo: dir, brief: brief(dir), session: "s2" });
+    expect(running).toMatchObject({
       state: "running",
       repo: dir,
       goal: "ship it",
@@ -183,7 +189,9 @@ describe("start", () => {
       started: "2026-10-16T11:00:00.000Z",
       session: "s2",
     });
+    expect(Object.keys(running)).not.toContain("until");
     expect(list(ctx).waiting).toEqual([]);
+    expect(stop(ctx, "task-a")).toMatchObject({ state: "queued", until: null });
   });
 
   test("refuses a queued task that waits after a task the store still holds, changing nothing", () => {
@@ -196,7 +204,7 @@ describe("start", () => {
         code: "blocked",
         meta: { name: "task-a", after: ["task-b", "task-c"] },
         resolve:
-          "agent-task done task-b; agent-task done task-c once each has landed, or agent-task wait task-a [--after <name>]... [--waits <text>] to wait after fewer",
+          "agent-task done task-b; agent-task done task-c once each has landed, or agent-task wait task-a [--after <name>]... [--waits <text>] [--until <command>] to wait after fewer",
       }),
     );
     expect(taskByName(ctx.store, named("task-a"))).toEqual(task);
@@ -245,14 +253,14 @@ describe("start", () => {
           name: "running-one",
           state: "running",
           admits: [
-            "agent-task wait running-one [--after <name>]... [--waits <text>]",
+            "agent-task wait running-one [--after <name>]... [--waits <text>] [--until <command>]",
             "agent-task review running-one",
             "agent-task stop running-one",
             "agent-task done running-one",
           ],
         },
         resolve:
-          "running-one is running, which admits: agent-task wait running-one [--after <name>]... [--waits <text>]; agent-task review running-one; agent-task stop running-one; agent-task done running-one",
+          "running-one is running, which admits: agent-task wait running-one [--after <name>]... [--waits <text>] [--until <command>]; agent-task review running-one; agent-task stop running-one; agent-task done running-one",
       }),
     );
     expect(taskByName(ctx.store, named("running-one"))).toEqual(task);
@@ -260,39 +268,44 @@ describe("start", () => {
 });
 
 describe("wait", () => {
-  test("replaces what a queued task waits after and for, clears both when given nothing, and sets only waits on a running task", () => {
+  test("replaces what a queued task waits after and for and its check, clears all three when given nothing, and sets only waits on a running task", () => {
     const ctx = context();
     added(ctx, "task-b");
     added(ctx, "task-c");
-    const { task } = added(ctx, "task-a", { after: ["task-b"], waits: "one thing" });
-    expect(wait(ctx, { name: "task-a", after: ["task-c"], waits: "another" })).toEqual({
+    const { task } = added(ctx, "task-a", { after: ["task-b"], waits: "one thing", until: "exit 1" });
+    expect(wait(ctx, { name: "task-a", after: ["task-c"], waits: "another", until: "exit 0" })).toEqual({
       ...task,
       after: [named("task-c")],
       waits: "another",
+      until: "exit 0",
     });
-    expect(wait(ctx, { name: "task-a", after: [], waits: null })).toEqual({
+    expect(wait(ctx, { name: "task-a", after: [], waits: null, until: null })).toEqual({
       ...task,
       after: [],
       waits: null,
+      until: null,
     });
     const running = started(ctx, "task-d").task;
-    expect(wait(ctx, { name: "task-d", after: [], waits: "a review" })).toEqual({
+    expect(wait(ctx, { name: "task-d", after: [], waits: "a review", until: null })).toEqual({
       ...running,
       waits: "a review",
     });
   });
 
-  test("refuses --after on a running task, an unknown name and an unknown after name, changing nothing", () => {
+  test("refuses --after and --until on a running task, an unknown name and an unknown after name, changing nothing", () => {
     const ctx = context();
     const { task } = started(ctx, "task-d");
-    expect(() => wait(ctx, { name: "task-d", after: ["task-d"], waits: null })).toThrow(
+    expect(() => wait(ctx, { name: "task-d", after: ["task-d"], waits: null, until: null })).toThrow(
       expect.objectContaining({ code: "wrong_state", meta: expect.objectContaining({ act: "wait" }) }),
     );
-    expect(() => wait(ctx, { name: "task-z", after: [], waits: null })).toThrow(
+    expect(() => wait(ctx, { name: "task-d", after: [], waits: null, until: "exit 0" })).toThrow(
+      expect.objectContaining({ code: "wrong_state", meta: expect.objectContaining({ act: "wait" }) }),
+    );
+    expect(() => wait(ctx, { name: "task-z", after: [], waits: null, until: null })).toThrow(
       expect.objectContaining({ code: "unknown_task", meta: { name: "task-z", act: "wait" } }),
     );
     const queued = added(ctx, "task-a").task;
-    expect(() => wait(ctx, { name: "task-a", after: ["task-z"], waits: "x" })).toThrow(
+    expect(() => wait(ctx, { name: "task-a", after: ["task-z"], waits: "x", until: null })).toThrow(
       expect.objectContaining({ code: "unknown_task", meta: { name: "task-z", act: "wait" } }),
     );
     expect(taskByName(ctx.store, named("task-d"))).toEqual(task);
@@ -314,7 +327,7 @@ describe("review", () => {
           act: "review",
           state: "review",
           admits: [
-            "agent-task wait task-a [--after <name>]... [--waits <text>]",
+            "agent-task wait task-a [--after <name>]... [--waits <text>] [--until <command>]",
             "agent-task stop task-a",
             "agent-task done task-a",
           ],
@@ -338,7 +351,7 @@ describe("review", () => {
     expect(() => start(ctx, { name: "task-a", repo: dir, brief: task.brief, session: null })).toThrow(
       expect.objectContaining({ code: "name_taken", meta: expect.objectContaining({ state: "review" }) }),
     );
-    expect(wait(ctx, { name: "task-a", after: [], waits: "the owner" })).toMatchObject({
+    expect(wait(ctx, { name: "task-a", after: [], waits: "the owner", until: null })).toMatchObject({
       state: "review",
       waits: "the owner",
     });
@@ -350,6 +363,7 @@ describe("review", () => {
       waits: "the owner",
       added: task.added,
       after: [],
+      until: null,
     });
   });
 });
@@ -387,6 +401,7 @@ describe("list", () => {
         ...UNQUEUED,
         added: "2026-10-16T11:00:00.000Z",
         after: [],
+        until: null,
       },
     ]);
     expect(listing.waiting).toEqual([]);
@@ -414,7 +429,7 @@ describe("stop", () => {
   test("takes a running task back to queued, keeping its fields and added time, and refuses a queued or unknown one", () => {
     const ctx = context();
     const { dir, task } = started(ctx, "task-a", "s1");
-    wait(ctx, { name: "task-a", after: [], waits: "a review" });
+    wait(ctx, { name: "task-a", after: [], waits: "a review", until: null });
     expect(stop(later(ctx), "task-a")).toEqual({
       name: named("task-a"),
       state: "queued",
@@ -423,6 +438,7 @@ describe("stop", () => {
       waits: "a review",
       added: task.added,
       after: [],
+      until: null,
     });
     expect(() => stop(ctx, "task-a")).toThrow(
       expect.objectContaining({
@@ -432,8 +448,8 @@ describe("stop", () => {
           act: "stop",
           state: "queued",
           admits: [
-            "agent-task add task-a --repo <path> --goal <text> [--plan <file>] [--priority urgent|high|medium|low] [--after <name>]... [--waits <text>]",
-            "agent-task wait task-a [--after <name>]... [--waits <text>]",
+            "agent-task add task-a --repo <path> --goal <text> [--plan <file>] [--priority urgent|high|medium|low] [--after <name>]... [--waits <text>] [--until <command>]",
+            "agent-task wait task-a [--after <name>]... [--waits <text>] [--until <command>]",
             "agent-task start task-a --repo <path> --brief <file> [--session <id>]",
             "agent-task done task-a",
           ],
