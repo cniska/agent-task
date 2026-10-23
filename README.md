@@ -9,7 +9,7 @@ agent-task records each coding-agent task on this machine, with the repository i
 - `agent-task add <name>` queues a task with its goal, plan, priority, what it waits for and the check that says its wait is met, and `list` prints the queue in the order to start it.
 - `agent-task start <name>` runs a task from a brief, recording the brief's path and git blob sha and the session that started it; `review` marks it handed back for review, and `list` flags a brief that changed since.
 - `agent-task done <name>` removes a task however its work ended; whether the work landed is git's to show.
-- The `cniska-task` Claude Code plugin keeps a running or in-review task's brief from changing under the task.
+- The `cniska-task` Claude Code plugin puts the running and in-review tasks in a session's context, each with whether its brief changed.
 
 ## Install
 
@@ -49,7 +49,7 @@ claude plugin install cniska-task@cniska
 
 ## Why
 
-Agents running in parallel on one machine need one record of which task each is on, which work came back for review and what waits to start next. A brief edited while its task runs leaves the agent working from instructions no one can see anymore, so agent-task records the brief's sha when the task starts and its plugin refuses the edit.
+Agents running in parallel on one machine need one record of which task each is on, which work came back for review and what waits to start next. A brief edited while its task runs leaves the agent working from instructions no one can see anymore, so agent-task records the brief's sha when the task starts and `list` flags `briefChanged` once the brief no longer has it.
 
 agent-task is the record of the work on this machine, not an issue tracker such as Linear: it keeps nothing of a task once it is removed, and it depends on git and `/bin/sh` alone.
 
@@ -72,7 +72,7 @@ agent-task is the record of the work on this machine, not an issue tracker such 
 ## Docs
 
 - [Commands](docs/commands.md): every command, its flags and output, and where the store lives.
-- [Claude Code plugin](docs/plugin.md): what the plugin's hooks do and what they need.
+- [Claude Code plugin](docs/plugin.md): what the plugin's hook does and what it needs.
 - [Development](docs/development.md): setup, checks, scripts and rules, for working on this repo.
 - [Contributing](CONTRIBUTING.md): how outside contributors propose a change.
 - [Releasing](docs/releasing.md): the release workflow, what a release guarantees, the owner's one-time setup and each release's steps.

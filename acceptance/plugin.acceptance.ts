@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   binWith,
@@ -29,10 +29,14 @@ type Hook = { readonly matcher: string | null; readonly command: string };
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-function hookOf(event: string): Hook {
+function registeredHooks(): Readonly<Record<string, unknown>> {
   const parsed: unknown = JSON.parse(readFileSync(join(PLUGIN, "hooks", "hooks.json"), "utf8"));
   if (!isRecord(parsed) || !isRecord(parsed.hooks)) throw new Error("hooks.json holds a hooks object");
-  const handlers = parsed.hooks[event];
+  return parsed.hooks;
+}
+
+function hookOf(event: string): Hook {
+  const handlers = registeredHooks()[event];
   if (!Array.isArray(handlers) || handlers.length !== 1)
     throw new Error(`hooks.json has one ${event} handler`);
   const [handler] = handlers;
@@ -61,27 +65,8 @@ function hook(w: World, bin: string, event: string, cwd: string, input: unknown)
   return { exitCode: ran.status ?? -1, stdout: ran.stdout, stderr: ran.stderr };
 }
 
-function edit(w: World, bin: string, cwd: string, tool: string, file: string): Ran {
-  return hook(w, bin, "PreToolUse", cwd, {
-    hook_event_name: "PreToolUse",
-    tool_name: tool,
-    tool_input: { file_path: file },
-    cwd,
-  });
-}
-
 function sessionStart(w: World, bin: string, cwd: string, from = cwd): Ran {
   return hook(w, bin, "SessionStart", from, { hook_event_name: "SessionStart", source: "startup", cwd });
-}
-
-function denial(ran: Ran): string {
-  expect([ran.exitCode, ran.stderr]).toEqual([0, ""]);
-  const printed: unknown = JSON.parse(ran.stdout);
-  if (!isRecord(printed) || !isRecord(printed.hookSpecificOutput)) throw new Error("no hookSpecificOutput");
-  const { hookEventName, permissionDecision, permissionDecisionReason } = printed.hookSpecificOutput;
-  expect([hookEventName, permissionDecision]).toEqual(["PreToolUse", "deny"]);
-  if (typeof permissionDecisionReason !== "string") throw new Error("no reason");
-  return permissionDecisionReason;
 }
 
 function context(ran: Ran): string {
@@ -95,47 +80,6 @@ function context(ran: Ran): string {
 }
 
 const SILENT = { exitCode: 0, stdout: "", stderr: "" };
-
-test("AC-23 the edit hook denies an edit to a running or in-review task's brief through each tool, naming stop, the edit and start again, and passes another file", () => {
-  const w = world();
-  const bin = binWith(w, ON_PATH, true);
-  const dir = repo(w);
-  const file = brief(dir, "brief.md");
-  const other = brief(dir, "notes.md");
-  result(run(w, w.root, ["start", "task-a", "--repo", dir, "--brief", file]));
-  expect(pluginName()).toBe("cniska-task");
-  expect(hookOf("PreToolUse").matcher).toBe("Edit|Write|MultiEdit");
-  for (const [tool, path] of [
-    ["Edit", file],
-    ["Write", file],
-    ["MultiEdit", "brief.md"],
-  ] as const) {
-    const reason = denial(edit(w, bin, dir, tool, path));
-    expect(reason).toContain(`${file} is the brief of the running task task-a`);
-    expect(reason).toContain("agent-task stop task-a;");
-    expect(reason).toContain(`agent-task start task-a --repo ${dir} --brief ${file} [--session <id>]`);
-    expect(reason.indexOf("agent-task stop")).toBeLessThan(reason.indexOf("then edit"));
-    expect(reason.indexOf("then edit")).toBeLessThan(reason.indexOf("agent-task start"));
-  }
-  expect(edit(w, bin, dir, "Edit", other)).toEqual(SILENT);
-  expect(edit(w, bin, dir, "Write", join(dir, "new.md"))).toEqual(SILENT);
-  rmSync(file);
-  expect(denial(edit(w, bin, dir, "Write", file))).toContain("agent-task stop task-a;");
-  const nested = join(dir, "briefs", "deep");
-  mkdirSync(nested, { recursive: true });
-  const buried = brief(nested, "buried.md");
-  result(run(w, w.root, ["start", "task-b", "--repo", dir, "--brief", buried]));
-  rmSync(join(dir, "briefs"), { recursive: true });
-  expect(denial(edit(w, bin, dir, "Write", buried))).toContain("agent-task stop task-b;");
-  const reviewed = brief(dir, "reviewed.md");
-  result(run(w, w.root, ["start", "task-c", "--repo", dir, "--brief", reviewed]));
-  result(run(w, w.root, ["review", "task-c"]));
-  const inReview = denial(edit(w, bin, dir, "Edit", reviewed));
-  expect(inReview).toContain(`${reviewed} is the brief of the in-review task task-c`);
-  expect(inReview).toContain("agent-task stop task-c;");
-  const noCwd = { hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: "brief.md" } };
-  expect(hook(w, bin, "PreToolUse", dir, noCwd)).toEqual(SILENT);
-});
 
 test("AC-24 the session hook puts the running and in-review tasks in context where the working directory holds one of their briefs, and prints nothing elsewhere", () => {
   const w = world();
@@ -157,6 +101,8 @@ test("AC-24 the session hook puts the running and in-review tasks in context whe
   result(run(w, w.root, ["done", "gone"]));
   result(run(w, w.root, ["review", "task-b"]));
   writeFileSync(amended, "# Brief\n\nA fix.\n");
+  expect(pluginName()).toBe("cniska-task");
+  expect(Object.keys(registeredHooks())).toEqual(["SessionStart"]);
   expect(hookOf("SessionStart").matcher?.split("|").sort()).toEqual([
     "clear",
     "compact",
@@ -165,7 +111,7 @@ test("AC-24 the session hook puts the running and in-review tasks in context whe
   ]);
   for (const cwd of [briefs, dir]) {
     const text = context(sessionStart(w, bin, cwd));
-    const [heading, listed, closing] = text.split("\n");
+    const [heading, listed, ...rest] = text.split("\n");
     expect(heading).toBe(
       "cniska-task: the running and in-review tasks, as agent-task list --started prints them:",
     );
@@ -175,7 +121,7 @@ test("AC-24 the session hook puts the running and in-review tasks in context whe
         { name: "task-b", state: "review", brief: kept, briefChanged: false },
       ],
     });
-    expect(closing).toContain("the plugin denies an edit to one, naming agent-task stop");
+    expect(rest).toEqual([]);
   }
   const empty = join(dir, "empty");
   mkdirSync(empty);
@@ -183,7 +129,7 @@ test("AC-24 the session hook puts the running and in-review tasks in context whe
   expect(sessionStart(w, bin, join(dir, "missing"), dir)).toEqual(SILENT);
 });
 
-test("AC-25 both hooks print nothing and exit 0 over a store of a schema version agent-task cannot read, with no agent-task on PATH, and with only a note on stderr without jq or realpath", () => {
+test("AC-25 the session hook prints nothing and exits 0 over a store of a schema version agent-task cannot read, with no agent-task on PATH, and with only a note on stderr without jq or realpath", () => {
   const w = world();
   const dir = repo(w);
   const file = brief(dir, "brief.md");
@@ -192,14 +138,12 @@ test("AC-25 both hooks print nothing and exit 0 over a store of a schema version
   const db = new Database(join(w.root, "data", "agent-task", "tasks.db"));
   db.run("PRAGMA user_version = 4");
   db.close();
-  expect(edit(w, withCli, dir, "Edit", file)).toEqual(SILENT);
   expect(sessionStart(w, withCli, dir)).toEqual(SILENT);
   const fresh = world();
   const freshDir = repo(fresh);
   const freshBrief = brief(freshDir, "brief.md");
   result(run(fresh, fresh.root, ["start", "task-a", "--repo", freshDir, "--brief", freshBrief]));
   const withoutCli = binWith(fresh, ON_PATH, false);
-  expect(edit(fresh, withoutCli, freshDir, "Edit", freshBrief)).toEqual(SILENT);
   expect(sessionStart(fresh, withoutCli, freshDir)).toEqual(SILENT);
   for (const missing of ["jq", "realpath"]) {
     const without = binWith(
@@ -208,18 +152,14 @@ test("AC-25 both hooks print nothing and exit 0 over a store of a schema version
       true,
       `without-${missing}`,
     );
-    for (const ran of [
-      edit(fresh, without, freshDir, "Edit", freshBrief),
-      sessionStart(fresh, without, freshDir),
-    ]) {
-      expect([ran.exitCode, ran.stdout]).toEqual([0, ""]);
-      expect(ran.stderr).toStartWith(`cniska-task: ${missing} is not on PATH`);
-      expect(ran.stderr.split("\n")).toHaveLength(2);
-    }
+    const ran = sessionStart(fresh, without, freshDir);
+    expect([ran.exitCode, ran.stdout]).toEqual([0, ""]);
+    expect(ran.stderr).toStartWith(`cniska-task: ${missing} is not on PATH`);
+    expect(ran.stderr.split("\n")).toHaveLength(2);
   }
 });
 
-test("AC-34 list --started prints the started tasks alone and runs no queued task's check, and neither hook runs one", () => {
+test("AC-34 list --started prints the started tasks alone and runs no queued task's check, and the session hook runs none", () => {
   const w = world();
   const bin = binWith(w, ON_PATH, true);
   const dir = repo(w);
@@ -233,7 +173,6 @@ test("AC-34 list --started prints the started tasks alone and runs no queued tas
     { name: "task-a", state: "running", brief: file, briefChanged: false },
   ]);
   expect(existsSync(marker)).toBe(false);
-  expect(denial(edit(w, bin, dir, "Edit", file))).toContain("agent-task stop task-a;");
   expect(context(sessionStart(w, bin, dir))).toContain('"name":"task-a"');
   expect(existsSync(marker)).toBe(false);
   const misused = run(w, w.root, ["list", "--started", "extra"]);

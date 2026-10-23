@@ -163,11 +163,9 @@ describe("doctor", () => {
     });
   });
 
-  test("names hook files that the plugin ships", () => {
+  test("names only the session hook, a file the plugin ships", () => {
     const detail = checkOf(join(scratchDir(), "tasks.db"), [], "jq").detail;
-    for (const hook of ["before-edit.sh", "session-start.sh"]) {
-      expect(detail).toContain(hook);
-      expect(existsSync(join(PLUGIN_HOOKS, hook))).toBe(true);
-    }
+    expect([...detail.matchAll(/[\w-]+\.sh/g)].map(([name]) => name)).toEqual(["session-start.sh"]);
+    expect(existsSync(join(PLUGIN_HOOKS, "session-start.sh"))).toBe(true);
   });
 });

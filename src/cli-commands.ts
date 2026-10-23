@@ -174,7 +174,8 @@ const waitCommand: Command = {
 const reviewCommand: Command = {
   name: "review",
   usage: USAGE.review,
-  summary: "record that a running task was handed back for review; its brief stays frozen until stop or done",
+  summary:
+    "record that a running task was handed back for review; its brief and brief sha stay recorded until stop or done",
   run(args, runtime) {
     const name = oneName(this, parsed(this, args, {}).positionals);
     return withContext(runtime, (context) => review(context, name));

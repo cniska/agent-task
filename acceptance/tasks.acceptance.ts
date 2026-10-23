@@ -586,7 +586,7 @@ test("AC-14 list orders ready and waiting by priority with none last, then added
   ]);
 });
 
-test("AC-15 review takes a running task to review with the time, keeps it listed and its brief frozen, refuses review again, of a queued or unknown name, and start of its name; wait sets its text; stop takes it back to queued forgetting the review time; done removes it", () => {
+test("AC-15 review takes a running task to review with the time, keeps it listed with its brief and brief sha, refuses review again, of a queued or unknown name, and start of its name; wait sets its text; stop takes it back to queued forgetting the review time; done removes it", () => {
   const w = world();
   const dir = repo(w);
   const file = brief(w.root);
@@ -834,7 +834,7 @@ test("AC-33 a version-2 store is migrated by the first command that opens it, ke
   reopened.close();
 });
 
-test("AC-22 every command runs with git as the only program on PATH, a queued check under /bin/sh included, and doctor names the hooks' missing programs", () => {
+test("AC-22 every command runs with git as the only program on PATH, a queued check under /bin/sh included, and doctor names the session hook's missing programs", () => {
   const w = world();
   const dir = repo(w);
   const file = brief(w.root);
@@ -872,7 +872,6 @@ test("AC-22 every command runs with git as the only program on PATH, a queued ch
     const check = byName.get(program);
     expect(check).toMatchObject({ name: program, state: "warn" });
     expect(check.detail).toContain(`not found in ${bin}`);
-    expect(check.detail).toContain("before-edit.sh");
     expect(check.detail).toContain("session-start.sh");
     expect(check.fix).toContain(program);
   }

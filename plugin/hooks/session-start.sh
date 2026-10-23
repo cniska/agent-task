@@ -1,29 +1,51 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-source "${BASH_SOURCE[0]%/*}/tasks.sh"
-
 readonly UNREAD="the session was not told which tasks are running or in review"
 readonly HEADING="cniska-task: the running and in-review tasks, as agent-task list --started prints them:"
-readonly CLOSING="A running or in-review task's brief does not change under it: the plugin denies an edit to one, naming agent-task stop, the edit and agent-task start again."
+
+note() {
+  printf 'cniska-task: %s\n' "$1" >&2
+}
+
+prerequisites() {
+  if ! jq --version >/dev/null 2>&1; then
+    note "jq is not on PATH, so $UNREAD"
+    return 1
+  fi
+  if ! realpath / >/dev/null 2>&1; then
+    note "realpath is not on PATH, so $UNREAD"
+    return 1
+  fi
+}
+
+hook_input() {
+  local input
+  IFS= read -r -d '' input || true
+  printf '%s' "$input"
+}
 
 working_directory() {
   jq -r '.cwd // ""' 2>/dev/null
 }
 
+listed_tasks() {
+  agent-task list --started 2>/dev/null
+}
+
 context() {
-  jq -c --arg dir "$1/" --arg heading "$HEADING" --arg closing "$CLOSING" '
+  jq -c --arg dir "$1/" --arg heading "$HEADING" '
     select(any(.result.tasks[]; .brief | startswith($dir)))
     | {
         hookSpecificOutput: {
           hookEventName: "SessionStart",
-          additionalContext: ([$heading, (.result | tojson), $closing] | join("\n"))
+          additionalContext: ([$heading, (.result | tojson)] | join("\n"))
         }
       }' 2>/dev/null
 }
 
 main() {
-  prerequisites "$UNREAD" || return 0
+  prerequisites || return 0
   local cwd
   if ! cwd="$(hook_input | working_directory)"; then
     note "the hook input did not parse as JSON, so $UNREAD"

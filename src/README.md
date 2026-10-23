@@ -33,4 +33,4 @@ Another module reaches a module only through its bare-named file, so `cli`'s par
 - `cli-commands.ts` lists the commands and what each calls.
 - `tasks.ts` holds a task's states and the refusal each act meets in each.
 - `repo.test-support.ts` builds the throwaway repositories and origins the tests run against.
-- `spec.test.ts` ties [`../SPEC.md`](../SPEC.md)'s criteria to the acceptance suite in `../acceptance`, which drives the CLI and the plugin's hooks from outside; `syntax.test-support.ts` walks a source file's syntax for it and for `modules.test.ts`.
+- `spec.test.ts` ties [`../SPEC.md`](../SPEC.md)'s criteria to the acceptance suite in `../acceptance`, which drives the CLI and the plugin's hook from outside; `syntax.test-support.ts` walks a source file's syntax for it and for `modules.test.ts`.

@@ -21,13 +21,13 @@ export const DOCTOR_USAGE = "agent-task doctor";
 
 const RERUN = `then run ${DOCTOR_USAGE} again`;
 
-const HOOKS = "the plugin's PreToolUse hook (before-edit.sh) and its SessionStart hook (session-start.sh)";
+const HOOKS = "the plugin's SessionStart hook (session-start.sh)";
 
 const HOOK_PROGRAMS = [
-  { program: "bash", silence: `${HOOKS} cannot start, so they deny nothing and print nothing` },
-  { program: "agent-task", silence: `${HOOKS} deny nothing and print nothing` },
-  { program: "jq", silence: `${HOOKS} deny nothing and print only a note on stderr` },
-  { program: "realpath", silence: `${HOOKS} deny nothing and print only a note on stderr` },
+  { program: "bash", silence: `${HOOKS} cannot start, so it prints nothing` },
+  { program: "agent-task", silence: `${HOOKS} prints nothing` },
+  { program: "jq", silence: `${HOOKS} prints only a note on stderr` },
+  { program: "realpath", silence: `${HOOKS} prints only a note on stderr` },
 ] as const;
 
 const STORE_REFUSALS = ["store_version", "store_unopenable", "store_busy"];
