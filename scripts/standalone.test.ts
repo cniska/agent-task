@@ -12,7 +12,7 @@ const WORKFLOWS = ".github/workflows";
 
 const INSTALLED_WORKFLOW = "# agent-gate:";
 
-const GUARDED_FILES = ["SPEC.md", "README.md"];
+const GUARDED_FILES = ["SPEC.md", "README.md", "CONTRIBUTING.md"];
 
 const OTHER_TOOL = /\b(cniska-(skills|record|gates|worktree)|agent-(record|gates|skills|worktree|ops))\b/g;
 
@@ -52,7 +52,7 @@ describe("the repo stands alone", () => {
     expect(guardedFiles().flatMap(namings)).toEqual([]);
   });
 
-  test("guards the sources, the spec, the README and the workflows it owns, but not itself or a workflow another tool installs", () => {
+  test("guards the sources, the spec, the README, CONTRIBUTING and the workflows it owns, but not itself or a workflow another tool installs", () => {
     const paths = guardedFiles().map(({ path }) => path);
     expect(paths).toContain("src/cli.ts");
     expect(paths).toContain("acceptance/harness.ts");
@@ -63,6 +63,7 @@ describe("the repo stands alone", () => {
     expect(paths).toContain(".github/workflows/release.yml");
     expect(paths).toContain("SPEC.md");
     expect(paths).toContain("README.md");
+    expect(paths).toContain("CONTRIBUTING.md");
     expect(paths).toContain(".github/workflows/check.yml");
     expect(paths).not.toContain(SELF);
     expect(ownWorkflow({ path: "x.yml", text: "# agent-gate:made-up:1\nname: X\n" })).toBe(false);

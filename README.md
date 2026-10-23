@@ -74,4 +74,5 @@ agent-task is the record of the work on this machine, not an issue tracker such 
 - [Commands](docs/commands.md): every command, its flags and output, and where the store lives.
 - [Claude Code plugin](docs/plugin.md): what the plugin's hooks do and what they need.
 - [Development](docs/development.md): setup, checks, scripts and rules, for working on this repo.
+- [Contributing](CONTRIBUTING.md): how outside contributors propose a change.
 - [Releasing](docs/releasing.md): the release workflow, what a release guarantees, the owner's one-time setup and each release's steps.
