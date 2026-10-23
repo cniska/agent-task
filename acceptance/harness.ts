@@ -6,6 +6,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -73,11 +74,35 @@ function launcher(bin: string): void {
   chmodSync(path, 0o755);
 }
 
-export function binWith(w: World, programs: readonly string[], cli: boolean, name = "bin"): string {
+function isExecutableFile(path: string): boolean {
+  const stats = statSync(path, { throwIfNoEntry: false });
+  return stats?.isFile() === true && (stats.mode & 0o111) !== 0;
+}
+
+function isMiseShim(path: string): boolean {
+  return basename(realpathSync(path)) === "mise";
+}
+
+function firstOnPath(tool: string, searched: string): string {
+  const found = searched
+    .split(":")
+    .filter((dir) => dir !== "")
+    .map((dir) => join(dir, tool))
+    .find((path) => isExecutableFile(path) && !isMiseShim(path));
+  if (found === undefined) throw new Error(`${tool} is not on PATH`);
+  return found;
+}
+
+export function binWith(
+  w: World,
+  programs: readonly string[],
+  cli: boolean,
+  name = "bin",
+  searched = process.env.PATH ?? "",
+): string {
   const bin = join(w.root, name);
   mkdirSync(bin);
-  for (const program of programs)
-    symlinkSync(execFileSync("which", [program], { encoding: "utf8" }).trim(), join(bin, program));
+  for (const program of programs) symlinkSync(firstOnPath(program, searched), join(bin, program));
   if (cli) launcher(bin);
   return bin;
 }
