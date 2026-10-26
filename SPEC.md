@@ -86,7 +86,7 @@ Coding agents run in parallel on one machine, each on a task started from a brie
 ### 2.14 Wait checks
 
 - **FR-33** — A queued task's check runs as `/bin/sh -c <command>`, the shell by its absolute path, in the task's repository, with the environment the CLI has, its input and output discarded, under a time limit the entry sets, five seconds. The result is `met` on exit 0, `unmet` on exit 1 through 125, `timed_out` when the limit passes, and `failed` on exit 126 or above, on a signal, when the shell cannot start or when the repository is gone. `list` runs every queued task's check on every call, and writes nothing: `--full` prints a result, which is never stored. `add` and `wait` print `until` and run no check.
-- **FR-34** — `list --started` prints `counts` and `tasks` alone, as FR-17 defines it, reading no queued task and running no check; `list --started` with any other argument than `--brief-under` is `bad_arguments`.
+- **FR-34** — `list --started` prints `counts` and `tasks` alone, as FR-17 defines it, reading no queued task and running no check; `list --started` with any other argument than `--brief-under` and `--full` is `bad_arguments`.
 - **FR-35** — `list --started --brief-under <dir>` prints what `list --started` prints when the brief of a running or in-review task sits under `<dir>`'s real path, and otherwise, a `<dir>` that does not exist included, is refused `no_brief_under`, naming `<dir>` and `list --started`. `--brief-under` without `--started`, or with an empty value, is `bad_arguments`.
 
 ### 2.15 Default views
