@@ -12,18 +12,42 @@ const WORKFLOWS = ".github/workflows";
 
 const INSTALLED_WORKFLOW = "# agent-gate:";
 
-const GUARDED_FILES = ["SPEC.md", "README.md", "CONTRIBUTING.md"];
+const README = "README.md";
+
+const GUARDED_FILES = ["SPEC.md", README, "CONTRIBUTING.md"];
 
 const OTHER_TOOL = /\b(cniska-(skills|record|gates|worktree)|agent-(record|gates|skills|worktree|ops))\b/g;
 
+const CROSSLINK_HEADING = "## Related";
+
+const NEXT_SECTION = "## ";
+
+const CROSSLINK = /\[(agent-(skills|task|record|gates|worktree))\]\(https:\/\/github\.com\/cniska\/\1\)/g;
+
 type Guarded = { readonly path: string; readonly text: string };
 
+function crosslinkSection(lines: readonly string[]): ReadonlySet<number> {
+  const heading = lines.indexOf(CROSSLINK_HEADING);
+  if (heading === -1) return new Set();
+  const next = lines.findIndex((line, index) => index > heading && line.startsWith(NEXT_SECTION));
+  const end = next === -1 ? lines.length : next;
+  return new Set(Array.from({ length: end - heading - 1 }, (_, offset) => heading + 1 + offset));
+}
+
+function inCrosslink(line: string, at: number): boolean {
+  return [...line.matchAll(CROSSLINK)].some(
+    ({ 0: link, index: start }) => at >= start && at < start + link.length,
+  );
+}
+
 function namings({ path, text }: Guarded): readonly string[] {
-  return text
-    .split("\n")
-    .flatMap((line, index) =>
-      [...line.matchAll(OTHER_TOOL)].map(([match]) => `${path}:${index + 1} names another tool: ${match}`),
-    );
+  const lines = text.split("\n");
+  const section = path === README ? crosslinkSection(lines) : new Set<number>();
+  return lines.flatMap((line, index) =>
+    [...line.matchAll(OTHER_TOOL)]
+      .filter(({ index: at }) => !(section.has(index) && inCrosslink(line, at)))
+      .map(([match]) => `${path}:${index + 1} names another tool: ${match}`),
+  );
 }
 
 function filesUnder(dir: string): readonly string[] {
@@ -76,6 +100,37 @@ describe("the repo stands alone", () => {
       "src/x.ts:2 names another tool: agent-worktree",
       "src/x.ts:2 names another tool: cniska-gates",
       "src/x.ts:2 names another tool: agent-ops",
+    ]);
+  });
+
+  test("lets only the README's Related section link the other tools, each by its own name", () => {
+    const link = "[agent-gates](https://github.com/cniska/agent-gates)";
+    const text = [
+      `See ${link}.`,
+      "## Related",
+      `Add-on to [agent-skills](https://github.com/cniska/agent-skills), beside ${link}.`,
+      "Install cniska-gates, or [agent-ops](https://github.com/cniska/agent-ops), or [agent-record](https://github.com/cniska/agent-gates).",
+      "## Next",
+      link,
+      "## Related",
+      link,
+    ].join("\n");
+    expect(namings({ path: "README.md", text })).toEqual([
+      "README.md:1 names another tool: agent-gates",
+      "README.md:1 names another tool: agent-gates",
+      "README.md:4 names another tool: cniska-gates",
+      "README.md:4 names another tool: agent-ops",
+      "README.md:4 names another tool: agent-ops",
+      "README.md:4 names another tool: agent-record",
+      "README.md:4 names another tool: agent-gates",
+      "README.md:6 names another tool: agent-gates",
+      "README.md:6 names another tool: agent-gates",
+      "README.md:8 names another tool: agent-gates",
+      "README.md:8 names another tool: agent-gates",
+    ]);
+    expect(namings({ path: "docs/commands.md", text: `## Related\n${link}` })).toEqual([
+      "docs/commands.md:2 names another tool: agent-gates",
+      "docs/commands.md:2 names another tool: agent-gates",
     ]);
   });
 });

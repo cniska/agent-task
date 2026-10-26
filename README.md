@@ -76,3 +76,11 @@ agent-task is the record of the work on this machine, not an issue tracker such 
 - [Development](docs/development.md): setup, checks, scripts and rules, for working on this repo.
 - [Contributing](CONTRIBUTING.md): how outside contributors propose a change.
 - [Releasing](docs/releasing.md): the release workflow, what a release guarantees, the owner's one-time setup and each release's steps.
+
+## Related
+
+agent-task works on its own in any agent workflow, and is one of the optional add-ons to [agent-skills](https://github.com/cniska/agent-skills), engineering skills for coding agents. The other add-ons:
+
+- [agent-record](https://github.com/cniska/agent-record): a session record for coding agents, every past session queryable and joined to its commits
+- [agent-gates](https://github.com/cniska/agent-gates): commit gates for coding agents, git hooks and CI checks that refuse a bad commit
+- [agent-worktree](https://github.com/cniska/agent-worktree): task worktrees for coding agents, one checkout per task, set up and torn down by the project's own commands
