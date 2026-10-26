@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { type Command, type Outcome, type Runtime, usageError } from "./cli-contract";
+import { doctorView, listingView, startedListingView, type View } from "./cli-views";
 import { messageOf } from "./coded-error";
 import { DOCTOR_USAGE, doctor } from "./doctor";
 import { storePath } from "./paths";
@@ -97,6 +98,10 @@ function priorityValue(command: Command, values: Parsed["values"]): Priority | n
   if (value === null) return null;
   if (!isPriority(value)) refuseArguments(command, `--priority is urgent, high, medium or low, not ${value}`);
   return value;
+}
+
+function viewOf(values: Parsed["values"]): View {
+  return values.full === true ? "full" : "default";
 }
 
 function withContext(runtime: Runtime, act: (context: Context) => unknown): Outcome {
@@ -198,20 +203,23 @@ const listCommand: Command = {
   name: "list",
   usage: USAGE.list,
   summary:
-    "list the running and in-review tasks, flagging each whose brief changed since it started, then the queued tasks ready to start and those waiting, running each one's check; --started lists the running and in-review tasks alone and runs no check, and with --brief-under <dir> lists them only when one's brief sits under that directory",
+    "list the running and in-review tasks, flagging each whose brief changed since it started, then the queued tasks ready to start and those waiting, running each one's check; --started lists the running and in-review tasks alone and runs no check, and with --brief-under <dir> lists them only when one's brief sits under that directory; --full prints every field of each task",
   run(args, runtime) {
     const { positionals, values } = parsed(this, args, {
       started: { type: "boolean" },
       "brief-under": { type: "string" },
+      full: { type: "boolean" },
     });
     noArguments(this, positionals);
     const started = values.started === true;
     const briefUnder = optionalValue(this, values, "brief-under");
     if (briefUnder !== null && !started) refuseArguments(this, "--brief-under takes --started");
     const dir = briefUnder === null ? null : resolve(runtime.cwd, briefUnder);
+    const view = viewOf(values);
     return withContext(runtime, (context) => {
-      if (dir !== null) return listStartedUnder(context, dir);
-      return started ? listStarted(context) : list(context);
+      if (dir !== null) return startedListingView(listStartedUnder(context, dir), view);
+      if (started) return startedListingView(listStarted(context), view);
+      return listingView(list(context), view);
     });
   },
 };
@@ -240,16 +248,19 @@ const doneCommand: Command = {
 const doctorCommand: Command = {
   name: "doctor",
   usage: DOCTOR_USAGE,
-  summary: "report what agent-task and its plugin need in order to work, naming the fix for each failure",
+  summary:
+    "report what agent-task and its plugin need in order to work, naming the fix for each failure; --full prints every check with its fix",
   run(args, runtime) {
-    noArguments(this, parsed(this, args, {}).positionals);
-    const report = doctor({
+    const { positionals, values } = parsed(this, args, { full: { type: "boolean" } });
+    noArguments(this, positionals);
+    const checks = doctor({
       storePath: storePath(runtime.env),
       busyWaitMs: runtime.busyWaitMs,
       processEnv: runtime.processEnv,
       searchPath: runtime.searchPath,
     });
-    return { value: report, status: report.failing === 0 ? 0 : 1 };
+    const report = doctorView(checks, viewOf(values));
+    return { value: report, status: report.count.fail === 0 ? 0 : 1 };
   },
 };
 

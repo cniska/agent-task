@@ -9,6 +9,7 @@ Flat, so a module is found by name. A file's prefix is its module: `cli-output.t
 | `cli.ts` | The entry: read the command line and the environment, run the command, print its result or refusal and set the exit code |
 | `cli-commands.ts` | Every command: parse its arguments, call the domain, return its result |
 | `cli-contract.ts` | What a command is, and the usage errors |
+| `cli-views.ts` | What `list` and `doctor` print: the count leading each, and the fields of the default view or of `--full` |
 | `cli-output.ts` | Writing the result as TOON to stdout and the error to stderr, and exiting |
 
 Another module reaches a module only through its bare-named file, so `cli`'s parts are its own and no module imports the entry. Only the entry reads the environment; it passes what the rest needs. Only `git` and `until` start a process; among the tests, only `cli.test.ts`, which holds the one CLI runner, and the repo fixtures do. A module makes no error but a `CodedError`, and every `switch` ends in a `default` that calls `unreachable`. [`modules.test.ts`](modules.test.ts) holds each of these, and reads the table below for the modules.

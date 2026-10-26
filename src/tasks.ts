@@ -44,7 +44,7 @@ export const USAGE = {
   start: "agent-task start <name> --repo <path> --brief <file> [--session <id>]",
   wait: "agent-task wait <name> [--after <name>]... [--waits <text>] [--until <command>]",
   review: "agent-task review <name>",
-  list: "agent-task list [--started [--brief-under <dir>]]",
+  list: "agent-task list [--started [--brief-under <dir>]] [--full]",
   stop: "agent-task stop <name>",
   done: "agent-task done <name>",
 } as const;
@@ -220,9 +220,9 @@ export function review({ store, now }: Context, raw: string): InReview {
   return reviewed;
 }
 
-type Listed = Started & { readonly briefChanged: boolean };
+export type Listed = Started & { readonly briefChanged: boolean };
 
-type Checked = Queued & { readonly untilState: UntilState | null };
+export type Checked = Queued & { readonly untilState: UntilState | null };
 
 export type StartedListing = {
   readonly tasks: readonly Listed[];

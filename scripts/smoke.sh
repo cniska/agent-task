@@ -21,7 +21,7 @@ main() {
   "$executable" start smoke-task --repo . --brief brief.md | grep -qx 'ok: true'
   "$executable" list | grep -q '^    smoke-task,'
   "$executable" "done" smoke-task | grep -qx 'ok: true'
-  "$executable" doctor | grep -qx '  failing: 0'
+  "$executable" doctor | grep -qx '    fail: 0'
 }
 
 main "$@"

@@ -17,7 +17,7 @@ function report(storePath: string, searchPath: readonly string[]) {
 }
 
 function checkOf(storePath: string, searchPath: readonly string[], name: string) {
-  const found = report(storePath, searchPath).checks.find((check) => check.name === name);
+  const found = report(storePath, searchPath).find((check) => check.name === name);
   if (found === undefined) throw new Error(`no ${name} check`);
   return found;
 }
@@ -124,7 +124,7 @@ describe("doctor", () => {
 
   test("checks a queued task's repository and no brief, and a running task's brief, naming stop", () => {
     const dir = scratchDir();
-    const queued = report(storeWith(dir, null), [GIT_DIR]).checks;
+    const queued = report(storeWith(dir, null), [GIT_DIR]);
     expect(queued.find(({ name }) => name === "task-a repository")?.state).toBe("warn");
     expect(queued.find(({ name }) => name === "task-a brief")).toBeUndefined();
     const running = checkOf(storeWith(repo(), join(dir, "missing.md")), [GIT_DIR], "task-a brief");
@@ -136,7 +136,7 @@ describe("doctor", () => {
 
   test("checks a task's plan only when it has one, warning on one it cannot read and naming add again", () => {
     const dir = repo();
-    const none = report(storeWith(dir, null), [GIT_DIR]).checks;
+    const none = report(storeWith(dir, null), [GIT_DIR]);
     expect(none.find(({ name }) => name === "task-a plan")).toBeUndefined();
     const plan = brief(scratchDir(), "plan\n");
     expect(checkOf(storeWith(dir, null, plan), [GIT_DIR], "task-a plan")).toEqual({

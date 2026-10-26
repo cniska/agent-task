@@ -69,15 +69,19 @@ PRAGMA user_version = 2;
 `;
 
 function listed(w: World): readonly Shown[] {
-  return listing(run(w, w.root, ["list"])).tasks;
+  return listing(run(w, w.root, ["list", "--full"])).tasks;
 }
 
 function ready(w: World): readonly Shown[] {
-  return listing(run(w, w.root, ["list"])).ready;
+  return listing(run(w, w.root, ["list", "--full"])).ready;
 }
 
 function waiting(w: World): readonly Shown[] {
-  return listing(run(w, w.root, ["list"])).waiting;
+  return listing(run(w, w.root, ["list", "--full"])).waiting;
+}
+
+function listedAs(task: Shown, briefChanged: boolean): Shown {
+  return { reviewed: null, ...task, briefChanged };
 }
 
 function names(tasks: readonly Shown[]): readonly unknown[] {
@@ -126,11 +130,8 @@ test("AC-1 start records the task in the store under XDG_DATA_HOME, with its ses
     run(w, w.root, ["start", "task-b", "--repo", dir, "--brief", file, "--session", "session-1"]),
   );
   expect(withSession).toMatchObject({ name: "task-b", session: "session-1" });
-  expect(listing(run(w, w.root, ["list"]))).toEqual({
-    tasks: [
-      { ...started, briefChanged: false },
-      { ...withSession, briefChanged: false },
-    ],
+  expect(listing(run(w, w.root, ["list", "--full"]))).toEqual({
+    tasks: [listedAs(started, false), listedAs(withSession, false)],
     ready: [],
     waiting: [],
   });
@@ -224,7 +225,7 @@ test("AC-6 start refuses a running name, naming what it admits, starts a stopped
       ],
     },
   });
-  expect(listed(w)).toEqual([{ ...running, briefChanged: false }]);
+  expect(listed(w)).toEqual([listedAs(running, false)]);
   const first = result(start(w, "stopped-one", dir, file));
   result(run(w, w.root, ["stop", "stopped-one"]));
   const again = result(
@@ -263,7 +264,7 @@ test("AC-7 of several starts of one name at once, exactly one succeeds", async (
       code: "name_taken",
       meta: { name: "same-name", state: "running" },
     });
-  expect(listed(w)).toEqual([{ ...result(winner), briefChanged: false }]);
+  expect(listed(w)).toEqual([listedAs(result(winner), false)]);
 });
 
 test("AC-8 list prints running tasks oldest first, reading each brief afresh to flag a changed or deleted one, and the stopped tasks as ready", () => {
@@ -346,7 +347,7 @@ test("AC-9 stop takes a running task back to queued and done removes a task in e
       code: "invalid_name",
       meta: { name: "Task_A" },
     });
-  expect(listing(run(w, w.root, ["list"]))).toEqual({ tasks: [], ready: [], waiting: [] });
+  expect(listing(run(w, w.root, ["list", "--full"]))).toEqual({ tasks: [], ready: [], waiting: [] });
 });
 
 test("AC-10 add queues a task with its goal, plan, priority, after, waits and check, listed as waiting or ready, and refuses a bad plan, an unknown after name, a path outside git, itself as after, a bad priority and a blank check, recording nothing", () => {
@@ -395,7 +396,7 @@ test("AC-10 add queues a task with its goal, plan, priority, after, waits and ch
     after: ["task-b"],
     until: "test -f released",
   });
-  expect(listing(run(w, w.root, ["list"]))).toEqual({
+  expect(listing(run(w, w.root, ["list", "--full"]))).toEqual({
     tasks: [],
     ready: [{ ...first, untilState: null }],
     waiting: [{ ...full, untilState: "unmet" }],
@@ -456,10 +457,7 @@ test("AC-11 add on a queued name replaces its record keeping the added time, and
     code: "name_taken",
     meta: { name: "task-c", state: "review" },
   });
-  expect(listed(w)).toEqual([
-    { ...running, briefChanged: false },
-    { ...reviewed, briefChanged: false },
-  ]);
+  expect(listed(w)).toEqual([listedAs(running, false), listedAs(reviewed, false)]);
   expect(ready(w)).toEqual([{ ...replaced, untilState: null }]);
 });
 
@@ -502,7 +500,7 @@ test("AC-12 wait replaces what a task waits after and for and its check, clears 
     code: "unknown_task",
     meta: { name: "task-z", act: "wait" },
   });
-  expect(listed(w)).toEqual([{ ...running, waits: "a review", briefChanged: false }]);
+  expect(listed(w)).toEqual([listedAs({ ...running, waits: "a review" }, false)]);
 });
 
 test("AC-13 start of a queued task is refused blocked while a name it waits after is held, and once each is done runs it keeping its goal, plan, priority, waits and added time, waiting after nothing and with no check", () => {
@@ -558,8 +556,8 @@ test("AC-13 start of a queued task is refused blocked while a name it waits afte
   });
   expect(Object.keys(running)).not.toContain("after");
   expect(Object.keys(running)).not.toContain("until");
-  expect(listing(run(w, w.root, ["list"]))).toEqual({
-    tasks: [{ ...running, briefChanged: false }],
+  expect(listing(run(w, w.root, ["list", "--full"]))).toEqual({
+    tasks: [listedAs(running, false)],
     ready: [],
     waiting: [],
   });
@@ -595,7 +593,7 @@ test("AC-15 review takes a running task to review with the time, keeps it listed
   const reviewed = result(run(w, w.root, ["review", "task-a"]));
   expect(reviewed).toMatchObject({ ...running, state: "review" });
   expect(Date.parse(String(reviewed.reviewed))).toBeGreaterThanOrEqual(Date.parse(String(running.started)));
-  expect(listed(w)).toEqual([{ ...reviewed, briefChanged: false }]);
+  expect(listed(w)).toEqual([listedAs(reviewed, false)]);
   expect(refusal(run(w, w.root, ["review", "task-a"]))).toMatchObject({
     code: "wrong_state",
     meta: {
@@ -646,7 +644,10 @@ test("AC-16 a store of a schema version this agent-task cannot read is refused a
   const w = world();
   const path = storeOfVersion(w, 4);
   const before = readFileSync(path);
-  expect(refusal(run(w, w.root, ["list"]))).toMatchObject({ code: "store_version", meta: { found: 4 } });
+  expect(refusal(run(w, w.root, ["list", "--full"]))).toMatchObject({
+    code: "store_version",
+    meta: { found: 4 },
+  });
   expect(readFileSync(path).equals(before)).toBe(true);
 });
 
@@ -668,8 +669,15 @@ test("AC-17 a version-1 store is migrated by the first command that opens it, ke
   db.run("INSERT INTO task_commits VALUES ('old-done', 'abcdef0')");
   db.close();
   writeFileSync(amended, "# Brief\n\nA fix.\n");
-  const migrated = { repo: dir, briefSha: BRIEF_SHA, session: null, state: "running", ...UNQUEUED };
-  expect(listing(run(w, w.root, ["list"]))).toEqual({
+  const migrated = {
+    repo: dir,
+    briefSha: BRIEF_SHA,
+    session: null,
+    state: "running",
+    reviewed: null,
+    ...UNQUEUED,
+  };
+  expect(listing(run(w, w.root, ["list", "--full"]))).toEqual({
     tasks: [
       {
         ...migrated,
@@ -720,7 +728,7 @@ test("AC-32 list runs each queued task's check in its repository: a met check is
     expect(Object.keys(task)).not.toContain("untilState");
   writeFileSync(join(dir, "released"), "");
   const before = readFileSync(store);
-  expect(listing(run(w, w.root, ["list"]))).toEqual({
+  expect(listing(run(w, w.root, ["list", "--full"]))).toEqual({
     tasks: [],
     ready: [
       { ...met, untilState: "met" },
@@ -798,9 +806,9 @@ test("AC-33 a version-2 store is migrated by the first command that opens it, ke
     started: added,
     briefChanged: false,
   };
-  expect(listing(run(w, w.root, ["list"]))).toEqual({
+  expect(listing(run(w, w.root, ["list", "--full"]))).toEqual({
     tasks: [
-      { ...migrated, ...UNQUEUED, name: "running-one", state: "running", session: "s1" },
+      { ...migrated, ...UNQUEUED, name: "running-one", state: "running", session: "s1", reviewed: null },
       {
         ...migrated,
         ...UNQUEUED,
@@ -850,7 +858,7 @@ test("AC-22 every command runs with git as the only program on PATH, a queued ch
     ["review", "task-b"],
   ])
     succeeds(args);
-  expect(listing(run(w, w.root, ["list"], options)).waiting).toMatchObject([
+  expect(listing(run(w, w.root, ["list", "--full"], options)).waiting).toMatchObject([
     { name: "task-c", untilState: "met" },
   ]);
   for (const args of [
@@ -860,7 +868,7 @@ test("AC-22 every command runs with git as the only program on PATH, a queued ch
     ["done", "task-c"],
   ])
     succeeds(args);
-  const { checks } = result(run(w, w.root, ["doctor"], options));
+  const { checks } = result(run(w, w.root, ["doctor", "--full"], options));
   if (!Array.isArray(checks)) throw new Error("doctor prints its checks");
   const byName = new Map(checks.map((check) => [check.name, check]));
   expect(byName.get("git")).toEqual({
@@ -876,4 +884,53 @@ test("AC-22 every command runs with git as the only program on PATH, a queued ch
     expect(check.detail).toContain("session-start.sh");
     expect(check.fix).toContain(program);
   }
+});
+
+test("AC-35 list leads with the count in each group and prints by default, as tables, the fields an agent acts on and never a null one", () => {
+  const w = world();
+  const dir = repo(w);
+  const briefs = join(w.root, "briefs");
+  mkdirSync(briefs);
+  const first = brief(briefs, "a.md");
+  const second = brief(briefs, "b.md");
+  result(start(w, "task-a", dir, first));
+  result(start(w, "task-b", dir, second));
+  result(run(w, w.root, ["review", "task-b"]));
+  writeFileSync(first, "# Brief\n\nA fix.\n");
+  result(start(w, "stopped", dir, brief(briefs, "c.md")));
+  result(run(w, w.root, ["stop", "stopped"]));
+  result(add(w, "queued", dir, "do it", "--after", "stopped", "--waits", "the owner"));
+  const ran = run(w, w.root, ["list"]);
+  expect(decode(ran.stdout)).toEqual({
+    command: "list",
+    ok: true,
+    result: {
+      count: { running: 1, review: 1, ready: 1, waiting: 1 },
+      tasks: [
+        { name: "task-a", state: "running", brief: first, briefChanged: true },
+        { name: "task-b", state: "review", brief: second, briefChanged: false },
+      ],
+      ready: [{ name: "stopped", repo: dir }],
+      waiting: [{ name: "queued", repo: dir }],
+    },
+  });
+  expect(Object.keys(result(ran))).toEqual(["count", "tasks", "ready", "waiting"]);
+  for (const header of [
+    "tasks[2]{name,state,brief,briefChanged}:",
+    "ready[1]{name,repo}:",
+    "waiting[1]{name,repo}:",
+  ])
+    expect(ran.stdout).toContain(`\n  ${header}\n`);
+  const full = listing(run(w, w.root, ["list", "--full"]));
+  expect(full.ready).toMatchObject([{ name: "stopped", goal: null }]);
+  expect(full.waiting).toMatchObject([{ name: "queued", after: ["stopped"], waits: "the owner" }]);
+  const started = run(w, w.root, ["list", "--started"]);
+  expect(result(started)).toEqual({
+    count: { running: 1, review: 1 },
+    tasks: [
+      { name: "task-a", state: "running", brief: first, briefChanged: true },
+      { name: "task-b", state: "review", brief: second, briefChanged: false },
+    ],
+  });
+  expect(result(run(w, w.root, ["list", "--started", "--full"])).tasks).toEqual(listed(w));
 });

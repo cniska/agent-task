@@ -17,9 +17,11 @@ import {
 } from "./store";
 import { actFor, USAGE } from "./tasks";
 
-export const DOCTOR_USAGE = "agent-task doctor";
+const DOCTOR = "agent-task doctor";
 
-const RERUN = `then run ${DOCTOR_USAGE} again`;
+export const DOCTOR_USAGE = `${DOCTOR} [--full]`;
+
+const RERUN = `then run ${DOCTOR} again`;
 
 const MIGRATING_LIST = "agent-task list";
 
@@ -33,16 +35,9 @@ const HOOK_PROGRAMS = [
 
 const STORE_REFUSALS = ["store_version", "store_unopenable", "store_busy"];
 
-type State = "ok" | "warn" | "fail";
-
-type Health = {
-  readonly name: string;
-  readonly state: State;
-  readonly detail: string;
-  readonly fix: string | null;
-};
-
-type DoctorReport = { readonly checks: readonly Health[]; readonly failing: number };
+export type Health =
+  | { readonly name: string; readonly state: "ok"; readonly detail: string; readonly fix: null }
+  | { readonly name: string; readonly state: "warn" | "fail"; readonly detail: string; readonly fix: string };
 
 export type DoctorRequest = {
   readonly storePath: string;
@@ -75,7 +70,7 @@ function hookProgramHealth(program: string, silence: string, searchPath: readonl
     name: program,
     state: "warn",
     detail: `${searched(searchPath)}; without it ${silence}`,
-    fix: `install ${program} on the PATH Claude Code starts with, then run ${DOCTOR_USAGE} under that PATH`,
+    fix: `install ${program} on the PATH Claude Code starts with, then run ${DOCTOR} under that PATH`,
   };
 }
 
@@ -171,10 +166,10 @@ function taskHealth(store: Store, processEnv: ProcessEnv, gitFound: boolean): re
   }
 }
 
-export function doctor({ storePath, busyWaitMs, processEnv, searchPath }: DoctorRequest): DoctorReport {
+export function doctor({ storePath, busyWaitMs, processEnv, searchPath }: DoctorRequest): readonly Health[] {
   const git = lookUp("git", searchPath);
   const read = refused(() => readStore(storePath, busyWaitMs), STORE_REFUSALS);
-  const checks = [
+  return [
     storeHealth(storePath, read),
     ...HOOK_PROGRAMS.map(({ program, silence }) => hookProgramHealth(program, silence, searchPath)),
     gitHealth(git, searchPath),
@@ -182,5 +177,4 @@ export function doctor({ storePath, busyWaitMs, processEnv, searchPath }: Doctor
       ? []
       : taskHealth(read.store, processEnv, git !== null)),
   ];
-  return { checks, failing: checks.filter(({ state }) => state === "fail").length };
 }
