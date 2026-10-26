@@ -1,4 +1,5 @@
-import { constants, realpathSync } from "node:fs";
+import { constants, realpathSync, statSync } from "node:fs";
+import { isAbsolute, relative, sep } from "node:path";
 import { unreachable } from "./assert";
 import { refusals } from "./coded-error";
 import { permits } from "./file";
@@ -43,7 +44,7 @@ export const USAGE = {
   start: "agent-task start <name> --repo <path> --brief <file> [--session <id>]",
   wait: "agent-task wait <name> [--after <name>]... [--waits <text>] [--until <command>]",
   review: "agent-task review <name>",
-  list: "agent-task list [--started]",
+  list: "agent-task list [--started [--brief-under <dir>]]",
   stop: "agent-task stop <name>",
   done: "agent-task done <name>",
 } as const;
@@ -82,6 +83,7 @@ const refuse = refusals<{
   };
   readonly unknown_task: { readonly name: string; readonly act: Act };
   readonly blocked: { readonly name: string; readonly after: readonly TaskName[] };
+  readonly no_brief_under: { readonly dir: string };
 }>({
   invalid_name: {
     message: ({ name }) =>
@@ -112,6 +114,10 @@ const refuse = refusals<{
     message: ({ name, after }) => `${name} waits after ${after.join(", ")}, which the store still holds`,
     resolve: ({ name, after }) =>
       `${after.map((other) => actFor(USAGE.done, other)).join("; ")} once each has landed, or ${actFor(USAGE.wait, name)} to wait after fewer`,
+  },
+  no_brief_under: {
+    message: ({ dir }) => `no running or in-review task's brief sits under ${dir}`,
+    resolve: () => "agent-task list --started",
   },
 });
 
@@ -244,6 +250,20 @@ export function listStarted({ store, processEnv }: Context): StartedListing {
     briefChanged: blobSha(task.brief, processEnv) !== task.briefSha,
   }));
   return { tasks };
+}
+
+function isUnder(dir: string, path: string): boolean {
+  const rel = relative(dir, path);
+  return rel !== "" && !isAbsolute(rel) && rel.split(sep)[0] !== "..";
+}
+
+export function listStartedUnder(context: Context, dir: string): StartedListing {
+  if (statSync(dir, { throwIfNoEntry: false })?.isDirectory() !== true)
+    throw refuse("no_brief_under", { dir });
+  const real = realpathSync(dir);
+  const listing = listStarted(context);
+  if (!listing.tasks.some((task) => isUnder(real, task.brief))) throw refuse("no_brief_under", { dir });
+  return listing;
 }
 
 export function list(context: Context): Listing {

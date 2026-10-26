@@ -1,12 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
 import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { decode } from "@toon-format/toon";
 import {
   binWith,
   brief,
   compiledBinary,
   curlServing,
-  jsonLine,
   packageVersion,
   type Ran,
   releaseAssets,
@@ -60,7 +60,7 @@ function managesATask(w: World, path: string): void {
   const agentTask = (args: readonly string[]): unknown => {
     const ran = runProgram(w, dir, "agent-task", args, { env: { PATH: path } });
     expect([ran.exitCode, ran.stderr]).toEqual([0, ""]);
-    return jsonLine(ran.stdout);
+    return decode(ran.stdout);
   };
 
   expect(agentTask(["start", "task-a", "--repo", dir, "--brief", briefPath])).toMatchObject({
@@ -172,7 +172,7 @@ test(
 
     const unsupported = launched(["--version"], `${unameSaying(w, "Plan9", "mips")}:${path}`);
     expect([unsupported.exitCode, unsupported.stdout]).toEqual([1, ""]);
-    expect(jsonLine(unsupported.stderr)).toMatchObject({
+    expect(decode(unsupported.stderr)).toMatchObject({
       command: "agent-task",
       ok: false,
       error: { kind: "refusal", code: "no_build_for_platform" },
@@ -180,7 +180,7 @@ test(
 
     const missing = launched(["--version"]);
     expect([missing.exitCode, missing.stdout]).toEqual([1, ""]);
-    expect(jsonLine(missing.stderr)).toMatchObject({
+    expect(decode(missing.stderr)).toMatchObject({
       command: "agent-task",
       ok: false,
       error: { kind: "refusal", code: "platform_package_missing" },
@@ -192,7 +192,7 @@ test(
     chmodSync(platformBinary, 0o644);
     const unstartable = launched(["--version"]);
     expect([unstartable.exitCode, unstartable.stdout]).toEqual([1, ""]);
-    expect(jsonLine(unstartable.stderr)).toMatchObject({
+    expect(decode(unstartable.stderr)).toMatchObject({
       command: "agent-task",
       ok: false,
       error: { kind: "refusal", code: "binary_failed" },
@@ -202,7 +202,7 @@ test(
     expect(launched(["--version"])).toEqual({ exitCode: 0, stdout: `${packageVersion()}\n`, stderr: "" });
     const extra = launched(["--version", "now"]);
     expect([extra.exitCode, extra.stdout]).toEqual([2, ""]);
-    expect(jsonLine(extra.stderr)).toMatchObject({
+    expect(decode(extra.stderr)).toMatchObject({
       command: "agent-task",
       ok: false,
       error: { kind: "usage", code: "wrong_arity", resolve: "agent-task --version" },

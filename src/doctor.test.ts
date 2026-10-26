@@ -51,13 +51,13 @@ describe("doctor", () => {
   test("finds a program only as an executable file, and names each directory it searched", () => {
     const bin = scratchDir();
     writeFileSync(join(bin, "jq"), "#!/bin/sh\n");
-    mkdirSync(join(bin, "realpath"));
+    mkdirSync(join(bin, "bash"));
     const runnable = scratchDir();
     writeFileSync(join(runnable, "jq"), "#!/bin/sh\n");
     chmodSync(join(runnable, "jq"), 0o755);
     const store = join(scratchDir(), "tasks.db");
     expect(checkOf(store, [bin], "jq")).toMatchObject({ state: "warn" });
-    expect(checkOf(store, [bin], "realpath").detail).toStartWith(`not found in ${bin};`);
+    expect(checkOf(store, [bin], "bash").detail).toStartWith(`not found in ${bin};`);
     expect(checkOf(store, [bin, runnable], "jq")).toEqual({
       name: "jq",
       state: "ok",
@@ -99,7 +99,7 @@ describe("doctor", () => {
         name: "store",
         state: "warn",
         detail: `${path} is a version ${version} store; this agent-task reads version 3`,
-        fix: "run agent-task list [--started], which migrates it, then run agent-task doctor again",
+        fix: "run agent-task list, which migrates it, then run agent-task doctor again",
       });
       expect(readFileSync(path).equals(bytes)).toBe(true);
     }

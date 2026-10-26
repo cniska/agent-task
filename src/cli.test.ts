@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
+import { decode } from "@toon-format/toon";
 import { removeScratchDirs, scratchDir } from "./repo.test-support";
 
 const CLI = resolve(import.meta.dir, "cli.ts");
@@ -22,28 +23,24 @@ function cliWith(env: Readonly<Record<string, string>>, ...args: string[]) {
 }
 
 describe("the cli", () => {
-  test("prints the listing as one JSON line naming the program and each command", () => {
+  test("prints the listing as TOON naming the program and each command", () => {
     const run = cli();
     expect([run.status, run.stderr]).toEqual([0, ""]);
-    expect(run.stdout.split("\n")).toHaveLength(2);
-    const listed = JSON.parse(run.stdout);
-    expect(listed).toMatchObject({ command: "agent-task", ok: true });
-    expect(listed.result.commands.map(({ name }: { name: string }) => name)).toEqual([
-      "add",
-      "start",
-      "wait",
-      "review",
-      "list",
-      "stop",
-      "done",
-      "doctor",
-    ]);
+    expect(decode(run.stdout)).toMatchObject({
+      command: "agent-task",
+      ok: true,
+      result: {
+        commands: ["add", "start", "wait", "review", "list", "stop", "done", "doctor"].map((name) => ({
+          name,
+        })),
+      },
+    });
   });
 
-  test("prints a result as one JSON line naming the command, exit 0", () => {
+  test("prints a result as TOON naming the command, exit 0", () => {
     expect(cli("list")).toEqual({
       status: 0,
-      stdout: '{"command":"list","ok":true,"result":{"tasks":[],"ready":[],"waiting":[]}}\n',
+      stdout: "command: list\nok: true\nresult:\n  tasks: []\n  ready: []\n  waiting: []\n",
       stderr: "",
     });
   });
@@ -51,7 +48,7 @@ describe("the cli", () => {
   test("prints the started tasks alone for list --started", () => {
     expect(cli("list", "--started")).toEqual({
       status: 0,
-      stdout: '{"command":"list","ok":true,"result":{"tasks":[]}}\n',
+      stdout: "command: list\nok: true\nresult:\n  tasks: []\n",
       stderr: "",
     });
   });
@@ -59,24 +56,23 @@ describe("the cli", () => {
   test("prints doctor's report as a result on stdout, exit 1 when a check fails", () => {
     const run = cliWith({ PATH: "" }, "doctor");
     expect([run.status, run.stderr]).toEqual([1, ""]);
-    expect(run.stdout.split("\n")).toHaveLength(2);
-    expect(JSON.parse(run.stdout)).toMatchObject({ command: "doctor", ok: true, result: { failing: 1 } });
+    expect(decode(run.stdout)).toMatchObject({ command: "doctor", ok: true, result: { failing: 1 } });
   });
 
-  test("exits 1 with one JSON line on stderr for a refusal", () => {
+  test("exits 1 with the error as TOON on stderr for a refusal", () => {
     const run = cli("stop", "no-such-task");
     expect([run.status, run.stdout]).toEqual([1, ""]);
-    expect(JSON.parse(run.stderr)).toMatchObject({
+    expect(decode(run.stderr)).toMatchObject({
       command: "stop",
       ok: false,
       error: { kind: "refusal", code: "unknown_task", meta: { name: "no-such-task", act: "stop" } },
     });
   });
 
-  test("exits 2 with one JSON line on stderr for a usage error", () => {
+  test("exits 2 with the error as TOON on stderr for a usage error", () => {
     const run = cli("frobnicate");
     expect([run.status, run.stdout]).toEqual([2, ""]);
-    expect(JSON.parse(run.stderr)).toEqual({
+    expect(decode(run.stderr)).toEqual({
       command: "agent-task",
       ok: false,
       error: {
@@ -109,6 +105,8 @@ describe("the cli", () => {
       ["list", "extra"],
       ["list", "--started", "extra"],
       ["list", "--queued"],
+      ["list", "--brief-under", "."],
+      ["list", "--started", "--brief-under", " "],
       ["doctor", "extra"],
       ["start", "a", "--repo", ".", "--brief", "x", "--session", " "],
       ["review"],
@@ -119,7 +117,11 @@ describe("the cli", () => {
       ["done", "a", "--commit", "abc"],
     ]) {
       const run = cli(...args);
-      expect([args, run.status, JSON.parse(run.stderr).error.code]).toEqual([args, 2, "bad_arguments"]);
+      expect([args, run.status, decode(run.stderr)]).toMatchObject([
+        args,
+        2,
+        { error: { code: "bad_arguments" } },
+      ]);
     }
   });
 });

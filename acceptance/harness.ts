@@ -12,6 +12,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { decode } from "@toon-format/toon";
 
 const ENTRY = join(import.meta.dir, "..", "src", "cli.ts");
 
@@ -151,10 +152,26 @@ export function runAtOnce(
 
 export type Shown = Readonly<Record<string, unknown>>;
 
+function isShown(value: unknown): value is Shown {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function shownAt(value: unknown, key: string): Shown {
+  const shown = field(value, key);
+  if (!isShown(shown)) throw new Error(`expected a record at ${key}, got: ${JSON.stringify(value)}`);
+  return shown;
+}
+
+export function shownListAt(value: unknown, key: string): readonly Shown[] {
+  const list = field(value, key);
+  if (!Array.isArray(list) || !list.every(isShown))
+    throw new Error(`expected a list of records at ${key}, got: ${JSON.stringify(value)}`);
+  return list;
+}
+
 export function result(ran: Ran): Shown {
   expectExit(ran, 0);
-  const printed: { readonly result: Shown } = JSON.parse(ran.stdout);
-  return printed.result;
+  return shownAt(decode(ran.stdout), "result");
 }
 
 export type Listing = {
@@ -164,18 +181,17 @@ export type Listing = {
 };
 
 export function listing(ran: Ran): Listing {
-  expectExit(ran, 0);
-  const printed: { readonly result: Listing } = JSON.parse(ran.stdout);
-  return printed.result;
+  const shown = result(ran);
+  return {
+    tasks: shownListAt(shown, "tasks"),
+    ready: shownListAt(shown, "ready"),
+    waiting: shownListAt(shown, "waiting"),
+  };
 }
 
-export function refusal(ran: Ran): {
-  readonly code: string;
-  readonly meta: unknown;
-  readonly resolve: string;
-} {
+export function refusal(ran: Ran): Shown {
   expectExit(ran, 1);
-  return JSON.parse(ran.stderr).error;
+  return shownAt(decode(ran.stderr), "error");
 }
 
 function expectExit(ran: Ran, status: number): void {
@@ -248,13 +264,7 @@ export function curlServing(bin: string, assets: string): string {
   return bin;
 }
 
-export function jsonLine(text: string): unknown {
-  const lines = text.split("\n");
-  if (lines.length !== 2 || lines[1] !== "") throw new Error(`expected one JSON line, got: ${text}`);
-  return JSON.parse(lines[0] ?? "");
-}
-
-function field(value: unknown, key: string): unknown {
+export function field(value: unknown, key: string): unknown {
   return typeof value === "object" && value !== null ? Reflect.get(value, key) : undefined;
 }
 

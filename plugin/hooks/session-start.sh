@@ -8,17 +8,6 @@ note() {
   printf 'cniska-task: %s\n' "$1" >&2
 }
 
-prerequisites() {
-  if ! jq --version >/dev/null 2>&1; then
-    note "jq is not on PATH, so $UNREAD"
-    return 1
-  fi
-  if ! realpath / >/dev/null 2>&1; then
-    note "realpath is not on PATH, so $UNREAD"
-    return 1
-  fi
-}
-
 hook_input() {
   local input
   IFS= read -r -d '' input || true
@@ -30,33 +19,28 @@ working_directory() {
 }
 
 listed_tasks() {
-  agent-task list --started 2>/dev/null
+  agent-task list --started --brief-under "$1" 2>/dev/null
 }
 
-context() {
-  jq -c --arg dir "$1/" --arg heading "$HEADING" '
-    select(any(.result.tasks[]; .brief | startswith($dir)))
-    | {
-        hookSpecificOutput: {
-          hookEventName: "SessionStart",
-          additionalContext: ([$heading, (.result | tojson)] | join("\n"))
-        }
-      }' 2>/dev/null
+reply() {
+  jq -n --arg context "$HEADING"$'\n'"$1" \
+    '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $context}}'
 }
 
 main() {
-  prerequisites || return 0
+  if ! jq --version >/dev/null 2>&1; then
+    note "jq is not on PATH, so $UNREAD"
+    return 0
+  fi
   local cwd
   if ! cwd="$(hook_input | working_directory)"; then
     note "the hook input did not parse as JSON, so $UNREAD"
     return 0
   fi
-  [ -d "$cwd" ] || return 0
-  local real
-  real="$(realpath "$cwd" 2>/dev/null)" || return 0
+  [ -n "$cwd" ] || return 0
   local tasks
-  tasks="$(listed_tasks)" || return 0
-  context "$real" <<<"$tasks"
+  tasks="$(listed_tasks "$cwd")" || return 0
+  reply "$tasks"
 }
 
 main

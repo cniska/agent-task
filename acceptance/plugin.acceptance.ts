@@ -3,11 +3,13 @@ import { afterEach, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { decode } from "@toon-format/toon";
 import {
   binWith,
   brief,
   listing,
   type Ran,
+  refusal,
   removeScratchDirs,
   repo,
   result,
@@ -22,7 +24,7 @@ const PLUGIN = join(import.meta.dir, "..", "plugin");
 
 const SHELL = "/bin/sh";
 
-const ON_PATH = ["bash", "git", "jq", "realpath"];
+const ON_PATH = ["bash", "git", "jq"];
 
 type Hook = { readonly matcher: string | null; readonly command: string };
 
@@ -110,18 +112,21 @@ test("AC-24 the session hook puts the running and in-review tasks in context whe
     "startup",
   ]);
   for (const cwd of [briefs, dir]) {
-    const text = context(sessionStart(w, bin, cwd));
-    const [heading, listed, ...rest] = text.split("\n");
+    const [heading, ...listed] = context(sessionStart(w, bin, cwd)).split("\n");
     expect(heading).toBe(
       "cniska-task: the running and in-review tasks, as agent-task list --started prints them:",
     );
-    expect(JSON.parse(listed ?? "")).toMatchObject({
-      tasks: [
-        { name: "task-a", state: "running", brief: amended, briefChanged: true },
-        { name: "task-b", state: "review", brief: kept, briefChanged: false },
-      ],
+    expect(`${listed.join("\n")}\n`).toBe(run(w, w.root, ["list", "--started"]).stdout);
+    expect(decode(listed.join("\n"))).toMatchObject({
+      command: "list",
+      ok: true,
+      result: {
+        tasks: [
+          { name: "task-a", state: "running", brief: amended, briefChanged: true },
+          { name: "task-b", state: "review", brief: kept, briefChanged: false },
+        ],
+      },
     });
-    expect(rest).toEqual([]);
   }
   const empty = join(dir, "empty");
   mkdirSync(empty);
@@ -129,7 +134,7 @@ test("AC-24 the session hook puts the running and in-review tasks in context whe
   expect(sessionStart(w, bin, join(dir, "missing"), dir)).toEqual(SILENT);
 });
 
-test("AC-25 the session hook prints nothing and exits 0 over a store of a schema version agent-task cannot read, with no agent-task on PATH, and with only a note on stderr without jq or realpath", () => {
+test("AC-25 the session hook prints nothing and exits 0 over a store of a schema version agent-task cannot read, with no agent-task on PATH, and with only a note on stderr without jq", () => {
   const w = world();
   const dir = repo(w);
   const file = brief(dir, "brief.md");
@@ -145,7 +150,7 @@ test("AC-25 the session hook prints nothing and exits 0 over a store of a schema
   result(run(fresh, fresh.root, ["start", "task-a", "--repo", freshDir, "--brief", freshBrief]));
   const withoutCli = binWith(fresh, ON_PATH, false);
   expect(sessionStart(fresh, withoutCli, freshDir)).toEqual(SILENT);
-  for (const missing of ["jq", "realpath"]) {
+  for (const missing of ["jq"]) {
     const without = binWith(
       fresh,
       ON_PATH.filter((program) => program !== missing),
@@ -159,7 +164,7 @@ test("AC-25 the session hook prints nothing and exits 0 over a store of a schema
   }
 });
 
-test("AC-34 list --started prints the started tasks alone and runs no queued task's check, and the session hook runs none", () => {
+test("AC-34 list --started prints the started tasks alone and runs no queued task's check, --brief-under prints them only from a directory holding a brief, and the session hook runs none", () => {
   const w = world();
   const bin = binWith(w, ON_PATH, true);
   const dir = repo(w);
@@ -173,11 +178,25 @@ test("AC-34 list --started prints the started tasks alone and runs no queued tas
     { name: "task-a", state: "running", brief: file, briefChanged: false },
   ]);
   expect(existsSync(marker)).toBe(false);
-  expect(context(sessionStart(w, bin, dir))).toContain('"name":"task-a"');
+  const [, ...listed] = context(sessionStart(w, bin, dir)).split("\n");
+  expect(decode(listed.join("\n"))).toMatchObject({ result: { tasks: [{ name: "task-a" }] } });
   expect(existsSync(marker)).toBe(false);
   const misused = run(w, w.root, ["list", "--started", "extra"]);
   expect([misused.exitCode, misused.stdout]).toEqual([2, ""]);
-  expect(JSON.parse(misused.stderr)).toMatchObject({ error: { kind: "usage", code: "bad_arguments" } });
+  expect(decode(misused.stderr)).toMatchObject({ error: { kind: "usage", code: "bad_arguments" } });
+  expect(run(w, w.root, ["list", "--started", "--brief-under", dir])).toEqual(
+    run(w, w.root, ["list", "--started"]),
+  );
+  const elsewhere = join(w.root, "elsewhere");
+  mkdirSync(elsewhere);
+  expect(refusal(run(w, w.root, ["list", "--started", "--brief-under", elsewhere]))).toMatchObject({
+    code: "no_brief_under",
+    meta: { dir: elsewhere },
+    resolve: "agent-task list --started",
+  });
+  const unstarted = run(w, w.root, ["list", "--brief-under", dir]);
+  expect([unstarted.exitCode, unstarted.stdout]).toEqual([2, ""]);
+  expect(existsSync(marker)).toBe(false);
   expect(listing(run(w, w.root, ["list"])).ready).toMatchObject([{ name: "marking", untilState: "met" }]);
   expect(existsSync(marker)).toBe(true);
 });

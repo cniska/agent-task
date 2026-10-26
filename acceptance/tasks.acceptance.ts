@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { decode } from "@toon-format/toon";
 import {
   binWith,
   brief,
@@ -421,7 +422,7 @@ test("AC-10 add queues a task with its goal, plan, priority, after, waits and ch
   ]) {
     const usage = add(w, "task-c", dir, "g", ...flags);
     expect([usage.exitCode, usage.stdout]).toEqual([2, ""]);
-    expect(JSON.parse(usage.stderr).error).toMatchObject({ kind: "usage", code: "bad_arguments" });
+    expect(decode(usage.stderr)).toMatchObject({ error: { kind: "usage", code: "bad_arguments" } });
   }
   expect(names([...ready(w), ...waiting(w)])).toEqual(["task-b", "task-a"]);
 });
@@ -868,7 +869,7 @@ test("AC-22 every command runs with git as the only program on PATH, a queued ch
     detail: `found at ${join(bin, "git")}`,
     fix: null,
   });
-  for (const program of ["bash", "agent-task", "jq", "realpath"]) {
+  for (const program of ["bash", "agent-task", "jq"]) {
     const check = byName.get(program);
     expect(check).toMatchObject({ name: program, state: "warn" });
     expect(check.detail).toContain(`not found in ${bin}`);

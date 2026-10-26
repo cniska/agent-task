@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { decode } from "@toon-format/toon";
 import { removeScratchDirs, scratchDir } from "../src/repo.test-support";
 import { launcher, PLATFORMS } from "./build-npm";
 
@@ -85,9 +86,8 @@ async function run(
 
 function refusal(ran: Ran): unknown {
   expect([ran.status, ran.stdout]).toEqual([1, ""]);
-  const lines = ran.stderr.split("\n");
-  expect(lines).toHaveLength(2);
-  return JSON.parse(lines[0] ?? "");
+  expect(ran.stderr).toEndWith("\n");
+  return decode(ran.stderr);
 }
 
 describe.each<Layout>(["nested", "hoisted"])("the launcher over the %s layout", (layout) => {

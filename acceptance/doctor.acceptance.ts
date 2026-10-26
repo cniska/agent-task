@@ -2,7 +2,22 @@ import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { binWith, brief, git, type Ran, removeScratchDirs, repo, run, type World, world } from "./harness";
+import { decode } from "@toon-format/toon";
+import {
+  binWith,
+  brief,
+  field,
+  git,
+  type Ran,
+  removeScratchDirs,
+  repo,
+  run,
+  type Shown,
+  shownAt,
+  shownListAt,
+  type World,
+  world,
+} from "./harness";
 
 afterEach(removeScratchDirs);
 
@@ -15,16 +30,28 @@ type Check = {
 
 type Report = { readonly checks: readonly Check[]; readonly failing: number };
 
-const PROGRAMS = ["bash", "git", "jq", "realpath"];
+const PROGRAMS = ["bash", "git", "jq"];
+
+function isCheck(value: Shown): value is Check {
+  const { name, state, detail, fix } = value;
+  return (
+    typeof name === "string" &&
+    typeof state === "string" &&
+    typeof detail === "string" &&
+    (typeof fix === "string" || fix === null)
+  );
+}
 
 function report(ran: Ran, status: number): Report {
   expect([ran.exitCode, ran.stderr]).toEqual([status, ""]);
-  expect(ran.stdout.split("\n")).toHaveLength(2);
-  const printed: { readonly command: string; readonly ok: boolean; readonly result: Report } = JSON.parse(
-    ran.stdout,
-  );
-  expect([printed.command, printed.ok]).toEqual(["doctor", true]);
-  return printed.result;
+  const shown = decode(ran.stdout);
+  expect(shown).toMatchObject({ command: "doctor", ok: true });
+  const result = shownAt(shown, "result");
+  const checks = shownListAt(result, "checks");
+  const failing = field(result, "failing");
+  if (!checks.every(isCheck) || typeof failing !== "number")
+    throw new Error(`doctor printed no report: ${ran.stdout}`);
+  return { checks, failing };
 }
 
 function check(printed: Report, name: string): Check {
@@ -46,14 +73,7 @@ test("AC-26 doctor passes with no store and makes none, warns a version-1 and a 
   const bin = binWith(w, PROGRAMS, true);
   const fresh = doctor(w, bin, 0);
   expect(fresh.failing).toBe(0);
-  expect(fresh.checks.map(({ name }) => name)).toEqual([
-    "store",
-    "bash",
-    "agent-task",
-    "jq",
-    "realpath",
-    "git",
-  ]);
+  expect(fresh.checks.map(({ name }) => name)).toEqual(["store", "bash", "agent-task", "jq", "git"]);
   for (const one of fresh.checks) expect([one.name, one.state, one.fix]).toEqual([one.name, "ok", null]);
   expect(check(fresh, "jq").detail).toBe(`found at ${join(bin, "jq")}`);
   expect(existsSync(join(w.root, "data", "agent-task"))).toBe(false);
@@ -74,7 +94,7 @@ test("AC-26 doctor passes with no store and makes none, warns a version-1 and a 
       name: "store",
       state: "warn",
       detail: `${path} is a version ${version} store; this agent-task reads version 3`,
-      fix: "run agent-task list [--started], which migrates it, then run agent-task doctor again",
+      fix: "run agent-task list, which migrates it, then run agent-task doctor again",
     });
     expect(readFileSync(path).equals(old)).toBe(true);
   }
@@ -140,7 +160,7 @@ test("AC-28 doctor judges each task's repository, each running or in-review task
   expect(add("task-h", healthy, brief(briefs, "lost.md")).exitCode).toBe(0);
   rmSync(lost);
   const printed = doctor(w, binWith(w, PROGRAMS, true), 1);
-  expect(printed.checks.map(({ name }) => name).slice(6)).toEqual([
+  expect(printed.checks.map(({ name }) => name).slice(5)).toEqual([
     "task-a repository",
     "task-b repository",
     "task-c repository",

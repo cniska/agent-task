@@ -21,13 +21,14 @@ export const DOCTOR_USAGE = "agent-task doctor";
 
 const RERUN = `then run ${DOCTOR_USAGE} again`;
 
+const MIGRATING_LIST = "agent-task list";
+
 const HOOKS = "the plugin's SessionStart hook (session-start.sh)";
 
 const HOOK_PROGRAMS = [
   { program: "bash", silence: `${HOOKS} cannot start, so it prints nothing` },
   { program: "agent-task", silence: `${HOOKS} prints nothing` },
   { program: "jq", silence: `${HOOKS} prints only a note on stderr` },
-  { program: "realpath", silence: `${HOOKS} prints only a note on stderr` },
 ] as const;
 
 const STORE_REFUSALS = ["store_version", "store_unopenable", "store_busy"];
@@ -104,7 +105,7 @@ function storeHealth(path: string, read: Read | CodedError): Health {
         name: "store",
         state: "warn",
         detail: `${path} is a version ${read.found} store; this agent-task reads version ${SCHEMA_VERSION}`,
-        fix: `run ${USAGE.list}, which migrates it, ${RERUN}`,
+        fix: `run ${MIGRATING_LIST}, which migrates it, ${RERUN}`,
       };
     case "open":
       return { name: "store", state: "ok", detail: `${path} is a store this agent-task reads`, fix: null };

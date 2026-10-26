@@ -5,7 +5,19 @@ import { messageOf } from "./coded-error";
 import { DOCTOR_USAGE, doctor } from "./doctor";
 import { storePath } from "./paths";
 import { closeStore, isPriority, openStore, type Priority } from "./store";
-import { add, type Context, done, list, listStarted, review, start, stop, USAGE, wait } from "./tasks";
+import {
+  add,
+  type Context,
+  done,
+  list,
+  listStarted,
+  listStartedUnder,
+  review,
+  start,
+  stop,
+  USAGE,
+  wait,
+} from "./tasks";
 
 type Flags = Readonly<Record<string, { readonly type: "string" | "boolean"; readonly multiple?: boolean }>>;
 
@@ -186,12 +198,21 @@ const listCommand: Command = {
   name: "list",
   usage: USAGE.list,
   summary:
-    "list the running and in-review tasks, flagging each whose brief changed since it started, then the queued tasks ready to start and those waiting, running each one's check; --started lists the running and in-review tasks alone and runs no check",
+    "list the running and in-review tasks, flagging each whose brief changed since it started, then the queued tasks ready to start and those waiting, running each one's check; --started lists the running and in-review tasks alone and runs no check, and with --brief-under <dir> lists them only when one's brief sits under that directory",
   run(args, runtime) {
-    const { positionals, values } = parsed(this, args, { started: { type: "boolean" } });
+    const { positionals, values } = parsed(this, args, {
+      started: { type: "boolean" },
+      "brief-under": { type: "string" },
+    });
     noArguments(this, positionals);
     const started = values.started === true;
-    return withContext(runtime, (context) => (started ? listStarted(context) : list(context)));
+    const briefUnder = optionalValue(this, values, "brief-under");
+    if (briefUnder !== null && !started) refuseArguments(this, "--brief-under takes --started");
+    const dir = briefUnder === null ? null : resolve(runtime.cwd, briefUnder);
+    return withContext(runtime, (context) => {
+      if (dir !== null) return listStartedUnder(context, dir);
+      return started ? listStarted(context) : list(context);
+    });
   },
 };
 

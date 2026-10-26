@@ -18,10 +18,10 @@ main() {
   cd "$scratch/repo"
   git init -q
   printf '# Made-up brief\n' > brief.md
-  "$executable" start smoke-task --repo . --brief brief.md | grep -q '"ok":true'
-  "$executable" list | grep -q '"name":"smoke-task"'
-  "$executable" done smoke-task | grep -q '"ok":true'
-  "$executable" doctor | grep -q '"failing":0'
+  "$executable" start smoke-task --repo . --brief brief.md | grep -qx 'ok: true'
+  "$executable" list | grep -q '^    smoke-task,'
+  "$executable" "done" smoke-task | grep -qx 'ok: true'
+  "$executable" doctor | grep -qx '  failing: 0'
 }
 
 main "$@"

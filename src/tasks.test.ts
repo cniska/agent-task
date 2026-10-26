@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { brief, git, named, removeScratchDirs, repo, scratchDir } from "./repo.test-support";
 import { insertQueued, openStore, taskByName } from "./store";
@@ -10,6 +10,7 @@ import {
   done,
   list,
   listStarted,
+  listStartedUnder,
   review,
   start,
   stop,
@@ -467,6 +468,25 @@ describe("list", () => {
     expect(existsSync(marker)).toBe(false);
     list(ctx);
     expect(existsSync(marker)).toBe(true);
+  });
+
+  test("lists every started task from a directory holding one's brief, by its real path, and refuses one holding none", () => {
+    const ctx = context();
+    const dir = repo();
+    const briefs = join(dir, "briefs");
+    mkdirSync(briefs);
+    start(ctx, { name: "task-a", repo: dir, brief: brief(briefs), session: null });
+    started(ctx, "task-b");
+    const linked = join(scratchDir(), "linked");
+    symlinkSync(dir, linked);
+    for (const under of [briefs, dir, linked, "/"])
+      expect(listStartedUnder(ctx, under)).toEqual(listStarted(ctx));
+    const prefix = join(dir, "brief");
+    mkdirSync(prefix);
+    for (const under of [prefix, join(dir, "missing"), join(briefs, "brief.md"), scratchDir()])
+      expect(() => listStartedUnder(ctx, under)).toThrow(
+        expect.objectContaining({ code: "no_brief_under", meta: { dir: under } }),
+      );
   });
 
   test("splits the queued into ready and waiting, each by priority with none last, then added time, then name", () => {
