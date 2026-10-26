@@ -81,7 +81,7 @@ function managesATask(w: World, path: string): void {
   expect(agentTask(["doctor"])).toMatchObject({
     command: "doctor",
     ok: true,
-    result: { count: { fail: 0 } },
+    result: { counts: { fail: 0 } },
   });
 }
 

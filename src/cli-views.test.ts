@@ -45,11 +45,11 @@ const WAITING: Checked = { ...READY, name: named("task-d"), after: [named("task-
 const LISTING = { tasks: [RUNNING, IN_REVIEW], ready: [READY], waiting: [WAITING] };
 
 describe("the list views", () => {
-  test("lead with the count in each group, then print the fields an agent acts on by default", () => {
+  test("lead with the counts in each group, then print the fields an agent acts on by default", () => {
     const view = listingView(LISTING, "default");
-    expect(Object.keys(view)).toEqual(["count", "tasks", "ready", "waiting"]);
+    expect(Object.keys(view)).toEqual(["counts", "tasks", "ready", "waiting"]);
     expect<unknown>(view).toEqual({
-      count: { running: 1, review: 1, ready: 1, waiting: 1 },
+      counts: { running: 1, review: 1, ready: 1, waiting: 1 },
       tasks: [
         { name: "task-a", state: "running", brief: "/work/briefs/a.md", briefChanged: true },
         { name: "task-b", state: "review", brief: "/work/briefs/a.md", briefChanged: false },
@@ -89,7 +89,7 @@ describe("the list views", () => {
 
   test("count the running and in-review tasks alone for the started listing", () => {
     expect<unknown>(startedListingView({ tasks: [IN_REVIEW] }, "default")).toEqual({
-      count: { running: 0, review: 1 },
+      counts: { running: 0, review: 1 },
       tasks: [{ name: "task-b", state: "review", brief: "/work/briefs/a.md", briefChanged: false }],
     });
   });
@@ -102,18 +102,21 @@ describe("the doctor view", () => {
     { name: "git", state: "fail", detail: "not found", fix: "install git" },
   ] as const;
 
-  test("leads with the count in each state and puts each fix apart from the checks by default", () => {
+  test("leads with the counts in each state and prints the checks that warn or fail by default", () => {
     expect<unknown>(doctorView(checks, "default")).toEqual({
-      count: { ok: 1, warn: 1, fail: 1 },
-      checks: checks.map(({ name, state, detail }) => ({ name, state, detail })),
-      fixes: [
-        { name: "jq", fix: "install jq" },
-        { name: "git", fix: "install git" },
-      ],
+      counts: { ok: 1, warn: 1, fail: 1 },
+      checks: [checks[1], checks[2]],
     });
   });
 
-  test("prints every check with its fix with --full", () => {
-    expect<unknown>(doctorView(checks, "full")).toEqual({ count: { ok: 1, warn: 1, fail: 1 }, checks });
+  test("prints an empty checks table by default when every check passes", () => {
+    expect<unknown>(doctorView([checks[0]], "default")).toEqual({
+      counts: { ok: 1, warn: 0, fail: 0 },
+      checks: [],
+    });
+  });
+
+  test("prints every check with --full", () => {
+    expect<unknown>(doctorView(checks, "full")).toEqual({ counts: { ok: 1, warn: 1, fail: 1 }, checks });
   });
 });

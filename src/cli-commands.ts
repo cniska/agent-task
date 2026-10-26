@@ -260,7 +260,7 @@ const doctorCommand: Command = {
       searchPath: runtime.searchPath,
     });
     const report = doctorView(checks, viewOf(values));
-    return { value: report, status: report.count.fail === 0 ? 0 : 1 };
+    return { value: report, status: report.counts.fail === 0 ? 0 : 1 };
   },
 };
 

@@ -46,7 +46,7 @@ describe("the cli", () => {
     expect(cli("list")).toEqual({
       status: 0,
       stdout:
-        "command: list\nok: true\nresult:\n  count:\n    running: 0\n    review: 0\n    ready: 0\n    waiting: 0\n  tasks: []\n  ready: []\n  waiting: []\n",
+        "command: list\nok: true\nresult:\n  counts:\n    running: 0\n    review: 0\n    ready: 0\n    waiting: 0\n  tasks: []\n  ready: []\n  waiting: []\n",
       stderr: "",
     });
   });
@@ -54,7 +54,7 @@ describe("the cli", () => {
   test("prints the started tasks alone for list --started", () => {
     expect(cli("list", "--started")).toEqual({
       status: 0,
-      stdout: "command: list\nok: true\nresult:\n  count:\n    running: 0\n    review: 0\n  tasks: []\n",
+      stdout: "command: list\nok: true\nresult:\n  counts:\n    running: 0\n    review: 0\n  tasks: []\n",
       stderr: "",
     });
   });
@@ -62,7 +62,11 @@ describe("the cli", () => {
   test("prints doctor's report as a result on stdout, exit 1 when a check fails", () => {
     const run = cliWith({ PATH: "" }, "doctor");
     expect([run.status, run.stderr]).toEqual([1, ""]);
-    expect(decode(run.stdout)).toMatchObject({ command: "doctor", ok: true, result: { count: { fail: 1 } } });
+    expect(decode(run.stdout)).toMatchObject({
+      command: "doctor",
+      ok: true,
+      result: { counts: { fail: 1 } },
+    });
   });
 
   test("exits 1 with the error as TOON on stderr for a refusal", () => {

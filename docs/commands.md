@@ -10,7 +10,7 @@ Each command prints [TOON](https://toonformat.dev): a result on stdout, or an er
 | `agent-task start <name> --repo <path> --brief <file> [--session <id>]` | Run a task, new or queued, recording its repository, its brief with the brief's sha, and the session; refused `blocked` while a task it waits after is still held |
 | `agent-task wait <name> [--after <name>]... [--waits <text>] [--until <command>]` | Replace what a task waits for: tasks to land and a check that says the wait is met, on a queued task, and anything else as text; with none of the three, clear all three |
 | `agent-task review <name>` | Record that a running task was handed back for review; its brief and brief sha stay recorded until `stop` or `done` |
-| `agent-task list [--started [--brief-under <dir>]] [--full]` | List the running and in-review tasks, oldest started first, flagging each whose brief changed since it started; then the queued tasks `ready` to start and those `waiting`, each by priority, added time and name, running each one's check, whose result `--full` prints as `untilState`. With `--started`, print `count` and `tasks` alone, reading no queued task and running no check; adding `--brief-under <dir>`, print them only when one's brief sits under that directory, and otherwise refuse `no_brief_under` |
+| `agent-task list [--started [--brief-under <dir>]] [--full]` | List the running and in-review tasks, oldest started first, flagging each whose brief changed since it started; then the queued tasks `ready` to start and those `waiting`, each by priority, added time and name, running each one's check, whose result `--full` prints as `untilState`. With `--started`, print `counts` and `tasks` alone, reading no queued task and running no check; adding `--brief-under <dir>`, print them only when one's brief sits under that directory, and otherwise refuse `no_brief_under` |
 | `agent-task stop <name>` | Take a running or in-review task back to queued, forgetting its brief, session and review time and keeping its goal, plan, priority and waits |
 | `agent-task done <name>` | Remove a task in any state, whatever became of its work |
 | `agent-task doctor [--full]` | Report what agent-task and its plugin need: the store, `bash`, `agent-task`, `jq` and git on `PATH`, each task's repository, each running or in-review task's brief and each plan a task names, each check `ok`, `warn` or `fail` with its fix; exit 1 when one fails |
@@ -20,13 +20,13 @@ Each command prints [TOON](https://toonformat.dev): a result on stdout, or an er
 
 ## Default views
 
-`list` and `doctor` lead their result with `count`, then print by default the fields an agent acts on, each list a TOON table, and every field with `--full`.
+`list` and `doctor` lead their result with `counts`, then print by default what an agent acts on, each list a TOON table with no `null` field: `list` the fields it needs, `doctor` the checks to fix. `--full` prints every field and every check.
 
-| Command | `count` | Default fields | `--full` adds |
+| Command | `counts` | Default fields | `--full` adds |
 | --- | --- | --- | --- |
 | `list` | `running`, `review`, `ready`, `waiting` | `tasks{name,state,brief,briefChanged}`, `ready{name,repo}`, `waiting{name,repo}` | Every field of each task, `reviewed` `null` on a running one, and each queued task's goal, plan, priority, waits, `after`, `until` and `untilState` |
 | `list --started` | `running`, `review` | `tasks{name,state,brief,briefChanged}` | Every field of each task |
-| `doctor` | `ok`, `warn`, `fail` | `checks{name,state,detail}`, then `fixes{name,fix}` for each check that warns or fails | Each check with its `fix`, `null` when it passes, in place of `fixes` |
+| `doctor` | `ok`, `warn`, `fail` | `checks{name,state,detail,fix}` of each check that warns or fails, empty when all pass | The checks that pass, each with a `null` fix |
 
 ## Names and waits
 

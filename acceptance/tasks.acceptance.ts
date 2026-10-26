@@ -886,7 +886,7 @@ test("AC-22 every command runs with git as the only program on PATH, a queued ch
   }
 });
 
-test("AC-35 list leads with the count in each group and prints by default, as tables, the fields an agent acts on and never a null one", () => {
+test("AC-35 list leads with the counts in each group and prints by default, as tables, the fields an agent acts on and never a null one", () => {
   const w = world();
   const dir = repo(w);
   const briefs = join(w.root, "briefs");
@@ -905,7 +905,7 @@ test("AC-35 list leads with the count in each group and prints by default, as ta
     command: "list",
     ok: true,
     result: {
-      count: { running: 1, review: 1, ready: 1, waiting: 1 },
+      counts: { running: 1, review: 1, ready: 1, waiting: 1 },
       tasks: [
         { name: "task-a", state: "running", brief: first, briefChanged: true },
         { name: "task-b", state: "review", brief: second, briefChanged: false },
@@ -914,7 +914,7 @@ test("AC-35 list leads with the count in each group and prints by default, as ta
       waiting: [{ name: "queued", repo: dir }],
     },
   });
-  expect(Object.keys(result(ran))).toEqual(["count", "tasks", "ready", "waiting"]);
+  expect(Object.keys(result(ran))).toEqual(["counts", "tasks", "ready", "waiting"]);
   for (const header of [
     "tasks[2]{name,state,brief,briefChanged}:",
     "ready[1]{name,repo}:",
@@ -926,7 +926,7 @@ test("AC-35 list leads with the count in each group and prints by default, as ta
   expect(full.waiting).toMatchObject([{ name: "queued", after: ["stopped"], waits: "the owner" }]);
   const started = run(w, w.root, ["list", "--started"]);
   expect(result(started)).toEqual({
-    count: { running: 1, review: 1 },
+    counts: { running: 1, review: 1 },
     tasks: [
       { name: "task-a", state: "running", brief: first, briefChanged: true },
       { name: "task-b", state: "review", brief: second, briefChanged: false },

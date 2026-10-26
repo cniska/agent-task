@@ -23,7 +23,11 @@ test("AC-19 no command prints what list prints, --help lists the commands and th
   expect(run(w, w.root, ["start", "task-a", "--repo", dir, "--brief", brief(w.root)]).exitCode).toBe(0);
   const bare = run(w, w.root, []);
   expect([bare.exitCode, bare.stderr]).toEqual([0, ""]);
-  expect(decode(bare.stdout)).toMatchObject({ command: "list", ok: true, result: { count: { running: 1 } } });
+  expect(decode(bare.stdout)).toMatchObject({
+    command: "list",
+    ok: true,
+    result: { counts: { running: 1 } },
+  });
   expect(bare.stdout).toBe(run(w, w.root, ["list"]).stdout);
   const help = run(w, w.root, ["--help"]);
   expect([help.exitCode, help.stderr]).toEqual([0, ""]);

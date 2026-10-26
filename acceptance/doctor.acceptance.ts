@@ -48,7 +48,7 @@ function report(ran: Ran, status: number): Report {
   expect(shown).toMatchObject({ command: "doctor", ok: true });
   const result = shownAt(shown, "result");
   const checks = shownListAt(result, "checks");
-  const failing = field(shownAt(result, "count"), "fail");
+  const failing = field(shownAt(result, "counts"), "fail");
   if (!checks.every(isCheck) || typeof failing !== "number")
     throw new Error(`doctor printed no report: ${ran.stdout}`);
   return { checks, failing };
@@ -212,7 +212,7 @@ test("AC-28 doctor judges each task's repository, each running or in-review task
   expect(printed.failing).toBe(2);
 });
 
-test("AC-36 doctor leads with the count in each state, and by default prints each check without its fix and the fix of each that warns or fails apart", () => {
+test("AC-36 doctor leads with the counts in each state, and by default prints only the checks that warn or fail, each with its fix", () => {
   const w = world();
   const bin = binWith(w, ["bash", "git"], true);
   const ran = run(w, w.root, ["doctor"], { env: { PATH: bin } });
@@ -220,19 +220,29 @@ test("AC-36 doctor leads with the count in each state, and by default prints eac
   const shown = decode(ran.stdout);
   expect(shown).toMatchObject({ command: "doctor", ok: true });
   const shownResult = shownAt(shown, "result");
-  expect(Object.keys(shownResult)).toEqual(["count", "checks", "fixes"]);
-  expect(shownResult.count).toEqual({ ok: 4, warn: 1, fail: 0 });
-  expect(shownListAt(shownResult, "checks").map((one) => Object.keys(one))).toEqual(
-    Array(5).fill(["name", "state", "detail"]),
-  );
-  expect(ran.stdout).toContain("\n  checks[5]{name,state,detail}:\n");
-  expect(shownResult.fixes).toEqual([
-    {
-      name: "jq",
-      fix: "install jq on the PATH Claude Code starts with, then run agent-task doctor under that PATH",
-    },
+  expect(shownResult).toEqual({
+    counts: { ok: 4, warn: 1, fail: 0 },
+    checks: [
+      {
+        name: "jq",
+        state: "warn",
+        detail: expect.any(String),
+        fix: "install jq on the PATH Claude Code starts with, then run agent-task doctor under that PATH",
+      },
+    ],
+  });
+  expect(ran.stdout).toContain("\n  checks[1]{name,state,detail,fix}:\n");
+  expect(doctor(w, bin, 0).checks.map(({ name }) => name)).toEqual([
+    "store",
+    "bash",
+    "agent-task",
+    "jq",
+    "git",
   ]);
-  expect(doctor(w, bin, 0).checks).toContainEqual(
-    expect.objectContaining({ name: "jq", fix: expect.any(String) }),
-  );
+  const all = world();
+  const passing = run(all, all.root, ["doctor"], { env: { PATH: binWith(all, PROGRAMS, true) } });
+  expect([passing.exitCode, decode(passing.stdout)]).toEqual([
+    0,
+    { command: "doctor", ok: true, result: { counts: { ok: 5, warn: 0, fail: 0 }, checks: [] } },
+  ]);
 });

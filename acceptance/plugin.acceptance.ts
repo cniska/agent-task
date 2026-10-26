@@ -173,7 +173,7 @@ test("AC-34 list --started prints the started tasks alone and runs no queued tas
   result(run(w, w.root, ["add", "marking", "--repo", dir, "--goal", "mark", "--until", ": > marker"]));
   const marker = join(dir, "marker");
   const started = result(run(w, w.root, ["list", "--started"]));
-  expect(Object.keys(started)).toEqual(["count", "tasks"]);
+  expect(Object.keys(started)).toEqual(["counts", "tasks"]);
   expect(started.tasks).toMatchObject([
     { name: "task-a", state: "running", brief: file, briefChanged: false },
   ]);

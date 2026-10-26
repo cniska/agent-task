@@ -61,12 +61,12 @@ function startedCount(tasks: readonly Listed[]) {
 }
 
 export function startedListingView({ tasks }: StartedListing, view: View) {
-  return { count: startedCount(tasks), tasks: tasks.map((task) => startedRow(task, view)) };
+  return { counts: startedCount(tasks), tasks: tasks.map((task) => startedRow(task, view)) };
 }
 
 export function listingView({ tasks, ready, waiting }: Listing, view: View) {
   return {
-    count: { ...startedCount(tasks), ready: ready.length, waiting: waiting.length },
+    counts: { ...startedCount(tasks), ready: ready.length, waiting: waiting.length },
     tasks: tasks.map((task) => startedRow(task, view)),
     ready: ready.map((task) => queuedRow(task, view)),
     waiting: waiting.map((task) => queuedRow(task, view)),
@@ -78,22 +78,16 @@ function healthCount(checks: readonly Health[], state: Health["state"]): number 
 }
 
 export function doctorView(checks: readonly Health[], view: View) {
-  const count = {
+  const counts = {
     ok: healthCount(checks, "ok"),
     warn: healthCount(checks, "warn"),
     fail: healthCount(checks, "fail"),
   };
   switch (view) {
     case "default":
-      return {
-        count,
-        checks: checks.map(({ name, state, detail }) => ({ name, state, detail })),
-        fixes: checks.flatMap((check) =>
-          check.state === "ok" ? [] : [{ name: check.name, fix: check.fix }],
-        ),
-      };
+      return { counts, checks: checks.filter((check) => check.state !== "ok") };
     case "full":
-      return { count, checks };
+      return { counts, checks };
     default:
       return unreachable(view);
   }
