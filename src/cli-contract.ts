@@ -29,7 +29,7 @@ export const usageError = usageErrors<{
   readonly bad_arguments: { readonly command: string; readonly detail: string; readonly usage: string };
 }>({
   unknown_command: {
-    message: ({ name }) => `${name} is not an agent-task command; agent-task with no command lists them`,
+    message: ({ name }) => `${name} is not an agent-task command; agent-task --help lists them`,
     resolve: ({ usage }) => usage,
   },
   wrong_arity: {

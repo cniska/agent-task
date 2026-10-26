@@ -14,6 +14,8 @@ Each command prints [TOON](https://toonformat.dev): a result on stdout, or an er
 | `agent-task stop <name>` | Take a running or in-review task back to queued, forgetting its brief, session and review time and keeping its goal, plan, priority and waits |
 | `agent-task done <name>` | Remove a task in any state, whatever became of its work |
 | `agent-task doctor [--full]` | Report what agent-task and its plugin need: the store, `bash`, `agent-task`, `jq` and git on `PATH`, each task's repository, each running or in-review task's brief and each plan a task names, each check `ok`, `warn` or `fail` with its fix; exit 1 when one fails |
+| `agent-task` | Run `list` with no flag |
+| `agent-task --help` | List each command and flag with its usage and summary |
 | `agent-task --version` | Print the version alone on one line, not as TOON |
 
 ## Default views

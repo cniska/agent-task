@@ -9,13 +9,18 @@ const PROGRAM = "agent-task";
 
 const VERSION_FLAG = "--version";
 
-const VERSION_USAGE = `${PROGRAM} ${VERSION_FLAG}`;
+const HELP_FLAG = "--help";
+
+const LIVE_VIEW = "list";
 
 const BUSY_WAIT_MS = 5000;
 
 const UNTIL_TIMEOUT_MS = 5000;
 
-const FLAGS = [{ name: VERSION_FLAG, usage: VERSION_USAGE, summary: "print the version alone on one line" }];
+const FLAGS = [
+  { name: HELP_FLAG, usage: `${PROGRAM} ${HELP_FLAG}`, summary: "list the commands and flags" },
+  { name: VERSION_FLAG, usage: `${PROGRAM} ${VERSION_FLAG}`, summary: "print the version alone on one line" },
+];
 
 function blankToNull(value: string | undefined): string | null {
   return value === undefined || value.trim() === "" ? null : value;
@@ -38,9 +43,14 @@ const runtime: Runtime = {
   now: () => new Date(),
 };
 
-const [name, ...args] = process.argv.slice(2);
+const [name = LIVE_VIEW, ...args] = process.argv.slice(2);
 
-if (name === undefined || name === "--help")
+const flag = FLAGS.find((known) => known.name === name);
+
+if (flag !== undefined && args.length > 0)
+  exitWithError(PROGRAM, usageError("wrong_arity", { command: flag.name, got: args, usage: flag.usage }));
+
+if (name === HELP_FLAG)
   exitWithResult(
     PROGRAM,
     {
@@ -50,14 +60,7 @@ if (name === undefined || name === "--help")
     0,
   );
 
-if (name === VERSION_FLAG) {
-  if (args.length > 0)
-    exitWithError(
-      PROGRAM,
-      usageError("wrong_arity", { command: VERSION_FLAG, got: args, usage: VERSION_USAGE }),
-    );
-  exitWithVersion(version);
-}
+if (name === VERSION_FLAG) exitWithVersion(version);
 
 const command = COMMANDS.find((known) => known.name === name);
 
@@ -66,7 +69,7 @@ if (command === undefined)
     PROGRAM,
     usageError("unknown_command", {
       name,
-      usage: `${PROGRAM} ${[...COMMANDS.map(({ name }) => name), VERSION_FLAG].join("|")}`,
+      usage: `${PROGRAM} ${[...COMMANDS, ...FLAGS].map(({ name }) => name).join("|")}`,
     }),
   );
 

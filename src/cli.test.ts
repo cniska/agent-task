@@ -23,8 +23,8 @@ function cliWith(env: Readonly<Record<string, string>>, ...args: string[]) {
 }
 
 describe("the cli", () => {
-  test("prints the listing as TOON naming the program and each command", () => {
-    const run = cli();
+  test("prints the listing as TOON naming the program, each command and each flag for --help", () => {
+    const run = cli("--help");
     expect([run.status, run.stderr]).toEqual([0, ""]);
     expect(decode(run.stdout)).toMatchObject({
       command: "agent-task",
@@ -33,8 +33,13 @@ describe("the cli", () => {
         commands: ["add", "start", "wait", "review", "list", "stop", "done", "doctor"].map((name) => ({
           name,
         })),
+        flags: [{ name: "--help" }, { name: "--version" }],
       },
     });
+  });
+
+  test("runs list for no command", () => {
+    expect(cli()).toEqual(cli("list"));
   });
 
   test("prints a result as TOON naming the command, exit 0", () => {
@@ -79,12 +84,12 @@ describe("the cli", () => {
       error: {
         kind: "usage",
         code: "unknown_command",
-        message: "frobnicate is not an agent-task command; agent-task with no command lists them",
+        message: "frobnicate is not an agent-task command; agent-task --help lists them",
         meta: {
           name: "frobnicate",
-          usage: "agent-task add|start|wait|review|list|stop|done|doctor|--version",
+          usage: "agent-task add|start|wait|review|list|stop|done|doctor|--help|--version",
         },
-        resolve: "agent-task add|start|wait|review|list|stop|done|doctor|--version",
+        resolve: "agent-task add|start|wait|review|list|stop|done|doctor|--help|--version",
       },
     });
   });

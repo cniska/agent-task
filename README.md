@@ -65,6 +65,8 @@ agent-task is the record of the work on this machine, not an issue tracker such 
 | `agent-task stop <name>` | Take a running or in-review task back to queued |
 | `agent-task done <name>` | Remove a task in any state |
 | `agent-task doctor [--full]` | Check what agent-task and its plugin need |
+| `agent-task` | Run `list` |
+| `agent-task --help` | List the commands and flags |
 | `agent-task --version` | Print the version |
 
 [Commands](docs/commands.md) lists every command, its flags, its output and the store.

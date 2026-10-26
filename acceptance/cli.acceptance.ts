@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { decode } from "@toon-format/toon";
 import { version } from "../package.json";
-import { removeScratchDirs, run, world } from "./harness";
+import { brief, removeScratchDirs, repo, run, world } from "./harness";
 
 afterEach(removeScratchDirs);
 
@@ -17,11 +17,17 @@ test("AC-18 --version prints the version alone, and refuses an argument as a usa
   });
 });
 
-test("AC-19 no command and --help list the commands and the version flag", () => {
+test("AC-19 no command prints what list prints, --help lists the commands and the help and version flags, and refuses an argument", () => {
   const w = world();
+  const dir = repo(w);
+  expect(run(w, w.root, ["start", "task-a", "--repo", dir, "--brief", brief(w.root)]).exitCode).toBe(0);
   const bare = run(w, w.root, []);
   expect([bare.exitCode, bare.stderr]).toEqual([0, ""]);
-  expect(decode(bare.stdout)).toEqual({
+  expect(decode(bare.stdout)).toMatchObject({ command: "list", ok: true, result: { count: { running: 1 } } });
+  expect(bare.stdout).toBe(run(w, w.root, ["list"]).stdout);
+  const help = run(w, w.root, ["--help"]);
+  expect([help.exitCode, help.stderr]).toEqual([0, ""]);
+  expect(decode(help.stdout)).toEqual({
     command: "agent-task",
     ok: true,
     result: {
@@ -31,11 +37,18 @@ test("AC-19 no command and --help list the commands and the version flag", () =>
         summary: expect.any(String),
       })),
       flags: [
+        { name: "--help", usage: "agent-task --help", summary: "list the commands and flags" },
         { name: "--version", usage: "agent-task --version", summary: "print the version alone on one line" },
       ],
     },
   });
-  expect(run(w, w.root, ["--help"]).stdout).toBe(bare.stdout);
+  const extra = run(w, w.root, ["--help", "now"]);
+  expect([extra.exitCode, extra.stdout]).toEqual([2, ""]);
+  expect(decode(extra.stderr)).toMatchObject({
+    command: "agent-task",
+    ok: false,
+    error: { kind: "usage", code: "wrong_arity", resolve: "agent-task --help" },
+  });
 });
 
 test("AC-20 an unknown command and a misused one are usage errors on stderr, exit 2, and a refusal exits 1", () => {
