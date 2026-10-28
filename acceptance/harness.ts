@@ -203,11 +203,11 @@ export function git(w: World, cwd: string, args: readonly string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: "pipe", env: w.env }).trim();
 }
 
-function commit(w: World, repo: string, file: string): string {
-  writeFileSync(join(repo, file), `${file}\n`);
-  git(w, repo, ["add", file]);
-  git(w, repo, ["commit", "-q", "-m", file]);
-  return git(w, repo, ["rev-parse", "HEAD"]);
+function commit(w: World, dir: string, file: string): string {
+  writeFileSync(join(dir, file), `${file}\n`);
+  git(w, dir, ["add", file]);
+  git(w, dir, ["commit", "-q", "-m", file]);
+  return git(w, dir, ["rev-parse", "HEAD"]);
 }
 
 export function repo(w: World, name = "repo"): string {

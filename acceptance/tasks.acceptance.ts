@@ -88,6 +88,10 @@ function names(tasks: readonly Shown[]): readonly unknown[] {
   return tasks.map(({ name }) => name);
 }
 
+function briefChanges(tasks: readonly Shown[]): readonly unknown[] {
+  return tasks.map(({ name, briefChanged }) => [name, briefChanged]);
+}
+
 function add(w: World, name: string, at: string, goal: string, ...flags: string[]): Ran {
   return run(w, w.root, ["add", name, "--repo", at, "--goal", goal, ...flags]);
 }
@@ -283,15 +287,14 @@ test("AC-8 list prints running tasks oldest first, reading each brief afresh to 
     result(start(w, name, dir, file));
   result(run(w, w.root, ["done", "gone"]));
   const paused = result(run(w, w.root, ["stop", "paused"]));
-  const unchanged = (tasks: readonly Shown[]) => tasks.map(({ name, briefChanged }) => [name, briefChanged]);
-  expect(unchanged(listed(w))).toEqual([
+  expect(briefChanges(listed(w))).toEqual([
     ["zeta", false],
     ["mu", false],
     ["alpha", false],
   ]);
   writeFileSync(amended, "# Brief\n\nA fix.\n");
   rmSync(deleted);
-  expect(unchanged(listed(w))).toEqual([
+  expect(briefChanges(listed(w))).toEqual([
     ["zeta", true],
     ["mu", true],
     ["alpha", false],

@@ -46,10 +46,10 @@ function hookOf(event: string): Hook {
     throw new Error("a handler holds one hook");
   const matcher = handler.matcher ?? null;
   if (matcher !== null && typeof matcher !== "string") throw new Error("a matcher is a string");
-  const [hook] = handler.hooks;
-  if (!isRecord(hook) || hook.type !== "command" || typeof hook.command !== "string")
+  const [entry] = handler.hooks;
+  if (!isRecord(entry) || entry.type !== "command" || typeof entry.command !== "string")
     throw new Error("a hook is a command");
-  return { matcher, command: hook.command };
+  return { matcher, command: entry.command };
 }
 
 function pluginName(): unknown {

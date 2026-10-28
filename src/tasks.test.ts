@@ -452,11 +452,11 @@ describe("list", () => {
   test("gives a check the timeout passed in, listing one that runs past it as waiting, timed out", () => {
     const ctx = { ...context(), untilTimeoutMs: SHORT_CHECK_TIMEOUT_MS };
     added(ctx, "slow", { until: "sleep 60" });
-    const started = Date.now();
+    const startedAt = Date.now();
     expect(list(ctx).waiting.map(({ name, untilState }) => [name, untilState])).toEqual([
       [named("slow"), "timed_out"],
     ]);
-    expect(Date.now() - started).toBeLessThan(CHECK_TIMEOUT_MS);
+    expect(Date.now() - startedAt).toBeLessThan(CHECK_TIMEOUT_MS);
   });
 
   test("lists the started tasks alone on request, reading no queued task and running no check", () => {

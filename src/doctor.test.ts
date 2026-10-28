@@ -67,9 +67,9 @@ describe("doctor", () => {
   });
 
   test("says PATH names no directory when it is empty, and fails git", () => {
-    const git = checkOf(join(scratchDir(), "tasks.db"), [], "git");
-    expect(git.state).toBe("fail");
-    expect(git.detail).toStartWith("PATH names no directory;");
+    const check = checkOf(join(scratchDir(), "tasks.db"), [], "git");
+    expect(check.state).toBe("fail");
+    expect(check.detail).toStartWith("PATH names no directory;");
   });
 
   test("passes a store not yet made without making it, and fails one that cannot be opened", () => {

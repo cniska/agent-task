@@ -43,14 +43,14 @@ const runtime: Runtime = {
   now: () => new Date(),
 };
 
-const [name = LIVE_VIEW, ...args] = process.argv.slice(2);
+const [requested = LIVE_VIEW, ...args] = process.argv.slice(2);
 
-const flag = FLAGS.find((known) => known.name === name);
+const flag = FLAGS.find((known) => known.name === requested);
 
 if (flag !== undefined && args.length > 0)
   exitWithError(PROGRAM, usageError("wrong_arity", { command: flag.name, got: args, usage: flag.usage }));
 
-if (name === HELP_FLAG)
+if (requested === HELP_FLAG)
   exitWithResult(
     PROGRAM,
     {
@@ -60,24 +60,24 @@ if (name === HELP_FLAG)
     0,
   );
 
-if (name === VERSION_FLAG) exitWithVersion(version);
+if (requested === VERSION_FLAG) exitWithVersion(version);
 
-const command = COMMANDS.find((known) => known.name === name);
+const command = COMMANDS.find((known) => known.name === requested);
 
 if (command === undefined)
   exitWithError(
     PROGRAM,
     usageError("unknown_command", {
-      name,
+      name: requested,
       usage: `${PROGRAM} ${[...COMMANDS, ...FLAGS].map(({ name }) => name).join("|")}`,
     }),
   );
 
-function ranOrExited(command: Command): Outcome {
+function ranOrExited(chosen: Command): Outcome {
   try {
-    return command.run(args, runtime);
+    return chosen.run(args, runtime);
   } catch (error) {
-    return exitWithError(command.name, error);
+    return exitWithError(chosen.name, error);
   }
 }
 

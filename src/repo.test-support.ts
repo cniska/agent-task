@@ -20,11 +20,11 @@ export function git(cwd: string, args: readonly string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: "pipe" }).trim();
 }
 
-function commit(repo: string, file: string): string {
-  writeFileSync(join(repo, file), `${file}\n`);
-  git(repo, ["add", file]);
-  git(repo, ["commit", "-q", "-m", file]);
-  return git(repo, ["rev-parse", "HEAD"]);
+function commit(dir: string, file: string): string {
+  writeFileSync(join(dir, file), `${file}\n`);
+  git(dir, ["add", file]);
+  git(dir, ["commit", "-q", "-m", file]);
+  return git(dir, ["rev-parse", "HEAD"]);
 }
 
 export function repo(): string {

@@ -81,10 +81,10 @@ function optionalValue(command: Command, values: Parsed["values"], flag: string)
 function manyValues(command: Command, values: Parsed["values"], flag: string): readonly string[] {
   const value = values[flag];
   if (value === undefined) return [];
-  const list = typeof value === "string" ? [value] : value;
-  if (typeof list === "boolean" || !list.every(isText))
+  const given = typeof value === "string" ? [value] : value;
+  if (typeof given === "boolean" || !given.every(isText))
     refuseArguments(command, `needs a value after --${flag}`);
-  return list;
+  return given;
 }
 
 function afterNames(command: Command, values: Parsed["values"], name: string): readonly string[] {
