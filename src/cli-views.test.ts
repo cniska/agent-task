@@ -48,14 +48,14 @@ describe("the list views", () => {
   test("lead with the counts in each group, then print the fields an agent acts on by default", () => {
     const view = listingView(LISTING, "default");
     expect(Object.keys(view)).toEqual(["counts", "tasks", "ready", "waiting"]);
-    expect<unknown>(view).toEqual({
+    expect(view).toEqual({
       counts: { running: 1, review: 1, ready: 1, waiting: 1 },
       tasks: [
-        { name: "task-a", state: "running", brief: "/work/briefs/a.md", briefChanged: true },
-        { name: "task-b", state: "review", brief: "/work/briefs/a.md", briefChanged: false },
+        { name: RUNNING.name, state: "running", brief: "/work/briefs/a.md", briefChanged: true },
+        { name: IN_REVIEW.name, state: "review", brief: "/work/briefs/a.md", briefChanged: false },
       ],
-      ready: [{ name: "task-c", repo: "/work/repo" }],
-      waiting: [{ name: "task-d", repo: "/work/repo" }],
+      ready: [{ name: READY.name, repo: "/work/repo" }],
+      waiting: [{ name: WAITING.name, repo: "/work/repo" }],
     });
   });
 
@@ -88,9 +88,9 @@ describe("the list views", () => {
   });
 
   test("count the running and in-review tasks alone for the started listing", () => {
-    expect<unknown>(startedListingView({ tasks: [IN_REVIEW] }, "default")).toEqual({
+    expect(startedListingView({ tasks: [IN_REVIEW] }, "default")).toEqual({
       counts: { running: 0, review: 1 },
-      tasks: [{ name: "task-b", state: "review", brief: "/work/briefs/a.md", briefChanged: false }],
+      tasks: [{ name: IN_REVIEW.name, state: "review", brief: "/work/briefs/a.md", briefChanged: false }],
     });
   });
 });
@@ -103,20 +103,20 @@ describe("the doctor view", () => {
   ] as const;
 
   test("leads with the counts in each state and prints the checks that warn or fail by default", () => {
-    expect<unknown>(doctorView(checks, "default")).toEqual({
+    expect(doctorView(checks, "default")).toEqual({
       counts: { ok: 1, warn: 1, fail: 1 },
       checks: [checks[1], checks[2]],
     });
   });
 
   test("prints an empty checks table by default when every check passes", () => {
-    expect<unknown>(doctorView([checks[0]], "default")).toEqual({
+    expect(doctorView([checks[0]], "default")).toEqual({
       counts: { ok: 1, warn: 0, fail: 0 },
       checks: [],
     });
   });
 
   test("prints every check with --full", () => {
-    expect<unknown>(doctorView(checks, "full")).toEqual({ counts: { ok: 1, warn: 1, fail: 1 }, checks });
+    expect(doctorView(checks, "full")).toEqual({ counts: { ok: 1, warn: 1, fail: 1 }, checks });
   });
 });

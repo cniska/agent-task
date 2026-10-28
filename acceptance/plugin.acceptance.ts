@@ -105,7 +105,7 @@ test("AC-24 the session hook puts the running and in-review tasks in context whe
   writeFileSync(amended, "# Brief\n\nA fix.\n");
   expect(pluginName()).toBe("cniska-task");
   expect(Object.keys(registeredHooks())).toEqual(["SessionStart"]);
-  expect(hookOf("SessionStart").matcher?.split("|").sort()).toEqual([
+  expect(hookOf("SessionStart").matcher?.split("|").toSorted()).toEqual([
     "clear",
     "compact",
     "resume",
