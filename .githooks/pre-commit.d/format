@@ -2,7 +2,7 @@
 # agent-gate:format:3
 set -eu
 
-command='bun run format --linter-enabled=false'
+command='bun run format'
 
 paths() {
   git "$@" -z | od -An -v -to1 | tr -s ' \n' '\n\n' | awk 'NF { if ($0 == "000") { print path; path = "" } else path = path "\\" $0 }'
