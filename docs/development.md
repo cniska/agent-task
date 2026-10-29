@@ -25,9 +25,12 @@ mise trust && mise install
 
 ## Release scripts
 
-- `scripts/build-compiled.sh <outfile>` compiles the CLI into one executable that needs no Bun, the binary a release ships.
-- `scripts/smoke.sh <executable> <version>` is the release's smoke test: the executable prints the version, runs `start`, `list` and `done` on a made-up brief in a scratch repository and passes `doctor` there; the release runs it on each build and on each registry install.
-- `scripts/release.sh patch|minor|major` bumps the version and tags it; `.github/workflows/release.yml` builds the tag into an attested GitHub release, published only once every file is attached, the npm packages with provenance and a Homebrew repin, as [Releasing](releasing.md) says.
+- `scripts/build-compiled.sh <outfile> [<target>]` compiles the CLI into one executable that needs no Bun, for this machine or for the target given, `darwin-arm64` or `linux-x64`.
+- `scripts/smoke.sh <executable> <version>` is the release's smoke test: the executable prints the version, runs `start`, `list` and `done` on a made-up brief in a scratch repository and passes `doctor` there.
+- `scripts/build-release.sh` builds the GitHub release's files into `dist/`: it compiles both targets, runs the smoke on the one for this machine, and writes each tarball and its `.sha256`, `install.sh` and `SHA256SUMS.txt`. It refuses a machine that is neither target.
+- `scripts/build-npm.ts <release files> <out>` builds the three npm packages from the release's tarballs.
+
+`ship.toml` names `scripts/build-release.sh` and `scripts/build-npm.ts` as the build commands agent-ship's release workflow runs, as [Releasing](releasing.md) says.
 
 ## Rules
 

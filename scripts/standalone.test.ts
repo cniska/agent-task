@@ -16,7 +16,17 @@ const README = "README.md";
 
 const GUARDED_FILES = ["SPEC.md", README, "CONTRIBUTING.md"];
 
-const OTHER_TOOL = /\b(cniska-(skills|record|gates|worktree)|agent-(record|gates|skills|worktree|ops))\b/g;
+const OTHER_TOOL =
+  /\b(cniska-(skills|record|gates|worktree)|agent-(record|gates|skills|worktree|ops|ship))\b/g;
+
+const RELEASE_TOOL = "agent-ship";
+
+const RELEASE_FILES: ReadonlySet<string> = new Set([
+  ".github/workflows/release.yml",
+  "docs/releasing.md",
+  "docs/development.md",
+  "SPEC.md",
+]);
 
 const CROSSLINK_HEADING = "## Related";
 
@@ -46,6 +56,7 @@ function namings({ path, text }: Guarded): readonly string[] {
   return lines.flatMap((line, index) =>
     [...line.matchAll(OTHER_TOOL)]
       .filter(({ index: at }) => !(section.has(index) && inCrosslink(line, at)))
+      .filter(([match]) => !(match === RELEASE_TOOL && RELEASE_FILES.has(path)))
       .map(([match]) => `${path}:${index + 1} names another tool: ${match}`),
   );
 }
@@ -101,6 +112,27 @@ describe("the repo stands alone", () => {
       "src/x.ts:2 names another tool: cniska-gates",
       "src/x.ts:2 names another tool: agent-ops",
     ]);
+  });
+
+  test("lets only the release files name the tool it releases through", () => {
+    const text = "Released by agent-ship, not agent-worktree";
+    for (const path of [
+      ".github/workflows/release.yml",
+      "docs/releasing.md",
+      "docs/development.md",
+      "SPEC.md",
+    ])
+      expect(namings({ path, text })).toEqual([`${path}:1 names another tool: agent-worktree`]);
+    for (const path of [
+      "README.md",
+      "docs/commands.md",
+      "scripts/build-release.sh",
+      ".github/workflows/check.yml",
+    ])
+      expect(namings({ path, text })).toEqual([
+        `${path}:1 names another tool: agent-ship`,
+        `${path}:1 names another tool: agent-worktree`,
+      ]);
   });
 
   test("lets only the README's Related section link the other tools, each by its own name", () => {

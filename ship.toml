@@ -1,0 +1,27 @@
+version = "package.json"
+tag = "v<version>"
+branch = "main"
+check = "bun run check"
+signed = false
+
+[channels.github-release]
+build = "bash scripts/build-release.sh"
+files = [
+  "dist/agent-task-darwin-arm64.tar.gz",
+  "dist/agent-task-darwin-arm64.sha256",
+  "dist/agent-task-linux-x64.tar.gz",
+  "dist/agent-task-linux-x64.sha256",
+  "dist/install.sh",
+  "dist/SHA256SUMS.txt",
+]
+
+[channels.npm]
+build = "bun scripts/build-npm.ts dist dist/npm"
+out = "dist/npm"
+packages = ["@cniska/agent-task-darwin-arm64", "@cniska/agent-task-linux-x64", "@cniska/agent-task"]
+smoke = 'launcher="$(command -v agent-task)" && PATH=/usr/bin:/bin && if command -v node; then echo "smoke: node is on PATH, so the smoke would not prove the install needs none" >&2; exit 1; fi && "$launcher" --version'
+
+[channels.homebrew]
+tap = "cniska/homebrew-tap"
+formula = "Formula/agent-task.rb"
+credentials = ["TAP_DISPATCH_TOKEN"]
