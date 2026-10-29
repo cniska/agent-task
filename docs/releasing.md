@@ -1,6 +1,6 @@
 # Releasing
 
-agent-task releases through agent-ship: a `v*` tag on `main` runs `.github/workflows/release.yml`, which only calls agent-ship's reusable release workflow, pinned by the full sha of an agent-ship commit. It holds the concurrency group `release-<ref>`, so a second run of one tag waits for the first. [`ship.toml`](../ship.toml) names the channels, and agent-ship's [`docs/releasing.md`](https://github.com/cniska/agent-ship/blob/main/docs/releasing.md) says what the workflow does with each.
+agent-task releases through agent-ship: a `v*` tag on `main` runs `.github/workflows/release.yml`, which only calls agent-ship's reusable release workflow, pinned by the full sha of an agent-ship release. It holds the concurrency group `release-<ref>`, so a second run of one tag waits for the first. [`ship.toml`](../ship.toml) names the channels, and agent-ship's [`docs/releasing.md`](https://github.com/cniska/agent-ship/blob/main/docs/releasing.md) says what the workflow does with each.
 
 | Channel | What `ship.toml` gives it |
 | --- | --- |

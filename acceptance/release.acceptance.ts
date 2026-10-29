@@ -240,7 +240,7 @@ function buildingRelease(w: World, dir: string, target: string | null): Ran {
 }
 
 test(
-  "AC-37 build-release.sh builds, smoke-tests and packs only this machine's target, and refuses no target and another platform's, writing nothing",
+  "AC-37 build-release.sh builds, smoke-tests and packs only this machine's target, packs nothing when the smoke fails, and refuses no target and another platform's, writing nothing",
   () => {
     const w = world();
     const dir = checkoutCopy(w);
@@ -253,6 +253,12 @@ test(
       expect([refused.exitCode, refused.stdout, refused.stderr.startsWith(refusal)]).toEqual([1, "", true]);
       expect(existsSync(join(dir, "dist"))).toBe(false);
     }
+
+    const smoke = join(dir, "scripts", "smoke.sh");
+    writeFileSync(smoke, "exit 1\n");
+    expect(buildingRelease(w, dir, TARGET).exitCode).not.toBe(0);
+    expect(readdirSync(join(dir, "dist")).filter((file) => file.startsWith("agent-task-"))).toEqual([]);
+    cpSync(join(ROOT, "scripts", "smoke.sh"), smoke);
 
     expect(buildingRelease(w, dir, TARGET).exitCode).toBe(0);
     expect(readdirSync(join(dir, "dist")).toSorted()).toEqual([
