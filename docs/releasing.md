@@ -1,19 +1,20 @@
 # Releasing
 
-agent-task releases through agent-ship: a `v*` tag on `main` runs `.github/workflows/release.yml`, which only calls agent-ship's reusable release workflow, pinned to the full commit sha of an agent-ship release. [`ship.toml`](../ship.toml) names the channels, and agent-ship's [`docs/releasing.md`](https://github.com/cniska/agent-ship/blob/main/docs/releasing.md) says what the workflow does with each.
+agent-task releases through agent-ship: a `v*` tag on `main` runs `.github/workflows/release.yml`, which only calls agent-ship's reusable release workflow, pinned by the full sha of an agent-ship commit. It holds the concurrency group `release-<ref>`, so a second run of one tag waits for the first. [`ship.toml`](../ship.toml) names the channels, and agent-ship's [`docs/releasing.md`](https://github.com/cniska/agent-ship/blob/main/docs/releasing.md) says what the workflow does with each.
 
 | Channel | What `ship.toml` gives it |
 | --- | --- |
-| `github-release` | `scripts/build-release.sh`, which writes each build's tarball and `.sha256`, `install.sh` and `SHA256SUMS.txt` to `dist/`; the workflow attests every file, creates the tag's release as a draft with all of them, and only then publishes it |
-| `npm` | `scripts/build-npm.ts`, which builds the three packages from the release's tarballs; the workflow publishes them with provenance, installs `@cniska/agent-task` with `npm install -g` and runs the smoke |
+| `github-release` | `scripts/build-release.sh`, run once per target, which writes that target's tarball and `.sha256` to `dist/`, and an `assemble` that adds `install.sh` and `SHA256SUMS.txt`; the workflow attests every file, creates the tag's release as a draft with all of them, and only then publishes it |
+| `npm` | `scripts/build-npm.ts`, which builds the three packages from the release's tarballs, and the smoke `scripts/smoke.sh`; the workflow publishes the packages with provenance, then installs `@cniska/agent-task` and runs the smoke, as [What a release tests](#what-a-release-tests) says |
 | `homebrew` | `cniska/homebrew-tap` and `Formula/agent-task.rb`; once the release is published, the workflow dispatches the tap to repin the formula, with `TAP_DISPATCH_TOKEN` |
 
 A release never updates itself. Each channel updates the way it installed: `brew upgrade agent-task`, `npm update -g @cniska/agent-task`, `bun update -g @cniska/agent-task`, or the curl line run again.
 
 ## What a release tests
 
-- **The build.** The workflow runs `scripts/build-release.sh` on one Linux runner. It compiles darwin-arm64 and linux-x64 and runs `scripts/smoke.sh` on the build for the runner's own platform, as [Development](development.md#release-scripts) says. The darwin-arm64 build is cross-compiled and runs in no release job.
-- **The npm install.** On Linux, the smoke in `ship.toml` runs the installed launcher for its version with only `/usr/bin` and `/bin` on `PATH`, and fails when `node` is there. `scripts/launcher.test.ts`, in the check, runs the launcher over the layouts `npm` and `bun` install, with no runtime on `PATH`.
+- **The build.** The workflow runs `scripts/build-release.sh` once per target, darwin-arm64 on a macOS runner and linux-x64 on a Linux one. Each run compiles its own target and runs `scripts/smoke.sh` on it, as [Development](development.md#release-scripts) says.
+- **The npm install.** Once the packages are published, the workflow installs `@cniska/agent-task` from the registry on a macOS and a Linux runner, through `npm` and through `bun`. On each install it runs `scripts/smoke.sh` for the version under release, with neither Node nor Bun on `PATH`. `scripts/launcher.test.ts`, in the check, runs the launcher over the layouts `npm` and `bun` install, with no runtime on `PATH`.
+- **A dry run.** `gh workflow run release.yml -R cniska/agent-task --ref main` runs the release without publishing. It builds and smoke-tests each target, makes every release file and packs the npm packages. It attests, publishes and dispatches nothing.
 
 ## What a release guarantees
 

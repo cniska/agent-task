@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { decode } from "@toon-format/toon";
 import {
   binWith,
@@ -26,6 +26,10 @@ const BUILD_TIMEOUT_MS = 60_000;
 const INSTALL = join(import.meta.dir, "..", "scripts", "install.sh");
 
 const BUILD_NPM = join(import.meta.dir, "..", "scripts", "build-npm.ts");
+
+const ROOT = join(import.meta.dir, "..");
+
+const NOT_COPIED = new Set(["node_modules", "dist", ".git"]);
 
 const TARGET = `${process.platform}-${process.arch}`;
 
@@ -212,6 +216,49 @@ test(
       error: { kind: "usage", code: "wrong_arity", resolve: "agent-task --version" },
     });
     managesATask(w, path);
+  },
+  BUILD_TIMEOUT_MS,
+);
+
+function checkoutCopy(w: World): string {
+  const dir = join(w.root, "checkout");
+  cpSync(ROOT, dir, {
+    recursive: true,
+    filter: (source) => !NOT_COPIED.has(relative(ROOT, source).split("/")[0] ?? ""),
+  });
+  symlinkSync(join(ROOT, "node_modules"), join(dir, "node_modules"));
+  return dir;
+}
+
+function buildingRelease(w: World, dir: string, target: string | null): Ran {
+  return runProgram(w, dir, "bash", [join(dir, "scripts", "build-release.sh")], {
+    env: {
+      PATH: `${dirname(process.execPath)}:${SYSTEM_PATH}`,
+      ...(target === null ? {} : { TARGET: target }),
+    },
+  });
+}
+
+test(
+  "AC-37 build-release.sh builds, smoke-tests and packs only this machine's target, and refuses no target and another platform's, writing nothing",
+  () => {
+    const w = world();
+    const dir = checkoutCopy(w);
+
+    for (const [target, refusal] of [
+      [null, "build-release: TARGET is not set;"],
+      [OTHER_TARGET, `build-release: TARGET is ${OTHER_TARGET}, but this machine is ${TARGET};`],
+    ] as const) {
+      const refused = buildingRelease(w, dir, target);
+      expect([refused.exitCode, refused.stdout, refused.stderr.startsWith(refusal)]).toEqual([1, "", true]);
+      expect(existsSync(join(dir, "dist"))).toBe(false);
+    }
+
+    expect(buildingRelease(w, dir, TARGET).exitCode).toBe(0);
+    expect(readdirSync(join(dir, "dist")).toSorted()).toEqual([
+      `agent-task-${TARGET}.sha256`,
+      `agent-task-${TARGET}.tar.gz`,
+    ]);
   },
   BUILD_TIMEOUT_MS,
 );

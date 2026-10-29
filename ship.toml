@@ -6,6 +6,7 @@ signed = false
 
 [channels.github-release]
 build = "bash scripts/build-release.sh"
+assemble = "cp scripts/install.sh dist/install.sh && cd dist && shasum -a 256 -- agent-task-*.tar.gz install.sh >SHA256SUMS.txt"
 files = [
   "dist/agent-task-darwin-arm64.tar.gz",
   "dist/agent-task-darwin-arm64.sha256",
@@ -19,7 +20,7 @@ files = [
 build = "bun scripts/build-npm.ts dist dist/npm"
 out = "dist/npm"
 packages = ["@cniska/agent-task-darwin-arm64", "@cniska/agent-task-linux-x64", "@cniska/agent-task"]
-smoke = 'launcher="$(command -v agent-task)" && PATH=/usr/bin:/bin && if command -v node; then echo "smoke: node is on PATH, so the smoke would not prove the install needs none" >&2; exit 1; fi && "$launcher" --version'
+smoke = 'bash scripts/smoke.sh "$(command -v agent-task)" "$VERSION"'
 
 [channels.homebrew]
 tap = "cniska/homebrew-tap"

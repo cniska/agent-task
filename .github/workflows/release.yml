@@ -3,10 +3,21 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      app:
+        type: string
+        default: ""
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   release:
-    uses: cniska/agent-ship/.github/workflows/release.yml@feb91ec550b1958d187e5b08bb738607d8c8c1d1 # v0.1.0
+    uses: cniska/agent-ship/.github/workflows/release.yml@fbb2561b6f2f6b908205941aa34b61d81cecdc82 # main
+    with:
+      app: ${{ inputs.app }}
     permissions:
       contents: write
       id-token: write

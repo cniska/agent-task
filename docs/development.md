@@ -27,10 +27,10 @@ mise trust && mise install
 
 - `scripts/build-compiled.sh <outfile> [<target>]` compiles the CLI into one executable that needs no Bun, for this machine or for the target given, `darwin-arm64` or `linux-x64`.
 - `scripts/smoke.sh <executable> <version>` is the release's smoke test: the executable prints the version, runs `start`, `list` and `done` on a made-up brief in a scratch repository and passes `doctor` there.
-- `scripts/build-release.sh` builds the GitHub release's files into `dist/`: it compiles both targets, runs the smoke on the one for this machine, and writes each tarball and its `.sha256`, `install.sh` and `SHA256SUMS.txt`. It refuses a machine that is neither target.
+- `scripts/build-release.sh` builds one target's release files into `dist/`: it compiles the target `TARGET` names, runs the smoke on it, and writes its tarball and `.sha256`. It refuses an unset `TARGET`, and a machine of another platform.
 - `scripts/build-npm.ts <release files> <out>` builds the three npm packages from the release's tarballs.
 
-`ship.toml` names `scripts/build-release.sh` and `scripts/build-npm.ts` as the build commands agent-ship's release workflow runs, as [Releasing](releasing.md) says.
+`ship.toml` names `scripts/build-release.sh` and `scripts/build-npm.ts` as the build commands agent-ship's release workflow runs. Its `assemble` copies `install.sh` and writes `SHA256SUMS.txt` once every target is built, as [Releasing](releasing.md) says.
 
 ## Rules
 
