@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   release:
-    uses: cniska/agent-ship/.github/workflows/release.yml@fbb2561b6f2f6b908205941aa34b61d81cecdc82 # main
+    uses: cniska/agent-ship/.github/workflows/release.yml@e6829c5fd05608274537911153aba92ef88e7d55 # v0.2.0
     with:
       app: ${{ inputs.app }}
     permissions:
