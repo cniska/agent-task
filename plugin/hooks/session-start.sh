@@ -22,12 +22,9 @@ listed_tasks() {
   agent-task list --started --brief-under "$1" 2>/dev/null
 }
 
-reply() {
-  jq -n --arg context "$HEADING"$'\n'"$1" \
-    '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $context}}'
-}
-
 main() {
+  agent-task --version >/dev/null 2>&1 || return 0
+  printf '%s\n' "$(<"${BASH_SOURCE[0]%/*}/note.md")"
   if ! jq --version >/dev/null 2>&1; then
     note "jq is not on PATH, so $UNREAD"
     return 0
@@ -40,7 +37,7 @@ main() {
   [ -n "$cwd" ] || return 0
   local tasks
   tasks="$(listed_tasks "$cwd")" || return 0
-  reply "$tasks"
+  printf '\n%s\n%s\n' "$HEADING" "$tasks"
 }
 
 main

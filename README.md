@@ -9,7 +9,7 @@ agent-task records each coding-agent task on this machine, with the repository i
 - `agent-task add <name>` queues a task with its goal, plan, priority, what it waits for and the check that says its wait is met, and `list` prints the queue in the order to start it.
 - `agent-task start <name>` runs a task from a brief, recording the brief's path and git blob sha and the session that started it; `review` marks it handed back for review, and `list` flags a brief that changed since.
 - `agent-task done <name>` removes a task however its work ended; whether the work landed is git's to show.
-- The `cniska-task` Claude Code plugin puts the running and in-review tasks in a session's context, each with whether its brief changed.
+- The `cniska-task` Claude Code plugin tells every session that queued and running work lives in agent-task, and puts the running and in-review tasks in its context, each with whether its brief changed.
 
 ## Install
 

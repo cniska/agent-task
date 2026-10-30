@@ -28,9 +28,9 @@ const MIGRATING_LIST = "agent-task list";
 const HOOKS = "the plugin's SessionStart hook (session-start.sh)";
 
 const HOOK_PROGRAMS = [
-  { program: "bash", silence: `${HOOKS} cannot start, so it prints nothing` },
-  { program: "agent-task", silence: `${HOOKS} prints nothing` },
-  { program: "jq", silence: `${HOOKS} prints only a note on stderr` },
+  { program: "bash", lost: `${HOOKS} cannot start, so it prints nothing` },
+  { program: "agent-task", lost: `${HOOKS} prints nothing` },
+  { program: "jq", lost: `${HOOKS} prints its note but no running task` },
 ] as const;
 
 const STORE_REFUSALS = ["store_version", "store_unopenable", "store_busy"];
@@ -63,13 +63,13 @@ function searched(searchPath: readonly string[]): string {
   return searchPath.length === 0 ? "PATH names no directory" : `not found in ${searchPath.join(", ")}`;
 }
 
-function hookProgramHealth(program: string, silence: string, searchPath: readonly string[]): Health {
+function hookProgramHealth(program: string, lost: string, searchPath: readonly string[]): Health {
   const file = lookUp(program, searchPath);
   if (file !== null) return { name: program, state: "ok", detail: `found at ${file}`, fix: null };
   return {
     name: program,
     state: "warn",
-    detail: `${searched(searchPath)}; without it ${silence}`,
+    detail: `${searched(searchPath)}; without it ${lost}`,
     fix: `install ${program} on the PATH Claude Code starts with, then run ${DOCTOR} under that PATH`,
   };
 }
@@ -171,7 +171,7 @@ export function doctor({ storePath, busyWaitMs, processEnv, searchPath }: Doctor
   const read = refused(() => readStore(storePath, busyWaitMs), STORE_REFUSALS);
   return [
     storeHealth(storePath, read),
-    ...HOOK_PROGRAMS.map(({ program, silence }) => hookProgramHealth(program, silence, searchPath)),
+    ...HOOK_PROGRAMS.map(({ program, lost }) => hookProgramHealth(program, lost, searchPath)),
     gitHealth(git, searchPath),
     ...(read instanceof CodedError || read.kind !== "open"
       ? []

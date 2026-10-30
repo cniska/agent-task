@@ -1,6 +1,6 @@
 {
   "name": "cniska-task",
-  "description": "Puts the running and in-review agent-task tasks in a session's context: when a session starts, resumes, clears or compacts in a directory holding the brief of one, it adds them as agent-task list --started prints them, each flagged briefChanged when its brief no longer has the sha recorded when the task started. It needs the agent-task CLI on PATH and does nothing without it.",
+  "description": "Tells every session that queued and running work lives in agent-task, not in a ledger, a notes file or a plan, and names the commands that queue, start and close a task: whenever a session starts, resumes, clears or compacts, it adds that note, and in a directory holding the brief of a running or in-review task, the running and in-review tasks after it as agent-task list --started prints them, each flagged briefChanged when its brief no longer has the sha recorded when the task started. It needs the agent-task CLI on PATH and does nothing without it.",
   "author": {
     "name": "Christoffer Niska"
   },

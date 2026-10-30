@@ -71,19 +71,25 @@ function sessionStart(w: World, bin: string, cwd: string, from = cwd): Ran {
   return hook(w, bin, "SessionStart", from, { hook_event_name: "SessionStart", source: "startup", cwd });
 }
 
-function context(ran: Ran): string {
+const NOTE = readFileSync(join(PLUGIN, "hooks", "note.md"), "utf8");
+
+function noted(ran: Ran): string {
   expect([ran.exitCode, ran.stderr]).toEqual([0, ""]);
-  const printed: unknown = JSON.parse(ran.stdout);
-  if (!isRecord(printed) || !isRecord(printed.hookSpecificOutput)) throw new Error("no hookSpecificOutput");
-  const { hookEventName, additionalContext } = printed.hookSpecificOutput;
-  expect(hookEventName).toBe("SessionStart");
-  if (typeof additionalContext !== "string") throw new Error("no context");
-  return additionalContext;
+  expect(ran.stdout).toStartWith(NOTE);
+  return ran.stdout.slice(NOTE.length);
 }
+
+function context(ran: Ran): string {
+  const after = noted(ran);
+  expect(after).toStartWith("\n");
+  return after.slice(1).replace(/\n$/, "");
+}
+
+const NOTED = { exitCode: 0, stdout: NOTE, stderr: "" };
 
 const SILENT = { exitCode: 0, stdout: "", stderr: "" };
 
-test("AC-24 the session hook puts the running and in-review tasks in context where the working directory holds one of their briefs, and prints nothing elsewhere", () => {
+test("AC-24 the session hook adds its note naming agent-task's commands from any directory, then the running and in-review tasks where the working directory holds one of their briefs", () => {
   const w = world();
   const bin = binWith(w, ON_PATH, true);
   const dir = repo(w);
@@ -103,6 +109,13 @@ test("AC-24 the session hook puts the running and in-review tasks in context whe
   result(run(w, w.root, ["done", "gone"]));
   result(run(w, w.root, ["review", "task-b"]));
   writeFileSync(amended, "# Brief\n\nA fix.\n");
+  for (const named of [
+    "not in a ledger, a notes file or a plan",
+    "`agent-task add`",
+    "`agent-task start`",
+    "`agent-task done`",
+  ])
+    expect(NOTE).toContain(named);
   expect(pluginName()).toBe("cniska-task");
   expect(Object.keys(registeredHooks())).toEqual(["SessionStart"]);
   expect(hookOf("SessionStart").matcher?.split("|").toSorted()).toEqual([
@@ -130,11 +143,11 @@ test("AC-24 the session hook puts the running and in-review tasks in context whe
   }
   const empty = join(dir, "empty");
   mkdirSync(empty);
-  for (const cwd of [empty, elsewhere]) expect(sessionStart(w, bin, cwd)).toEqual(SILENT);
-  expect(sessionStart(w, bin, join(dir, "missing"), dir)).toEqual(SILENT);
+  for (const cwd of [empty, elsewhere]) expect(sessionStart(w, bin, cwd)).toEqual(NOTED);
+  expect(sessionStart(w, bin, join(dir, "missing"), dir)).toEqual(NOTED);
 });
 
-test("AC-25 the session hook prints nothing and exits 0 over a store of a schema version agent-task cannot read, with no agent-task on PATH, and with only a note on stderr without jq", () => {
+test("AC-25 the session hook prints its note alone with no task started, over a store it cannot read and from input naming no directory, prints nothing with no agent-task on PATH, and adds a stderr line without jq", () => {
   const w = world();
   const dir = repo(w);
   const file = brief(dir, "brief.md");
@@ -143,13 +156,16 @@ test("AC-25 the session hook prints nothing and exits 0 over a store of a schema
   const db = new Database(join(w.root, "data", "agent-task", "tasks.db"));
   db.run("PRAGMA user_version = 4");
   db.close();
-  expect(sessionStart(w, withCli, dir)).toEqual(SILENT);
+  expect(sessionStart(w, withCli, dir)).toEqual(NOTED);
   const fresh = world();
   const freshDir = repo(fresh);
   const freshBrief = brief(freshDir, "brief.md");
+  const freshBin = binWith(fresh, ON_PATH, true, "fresh");
+  expect(sessionStart(fresh, freshBin, freshDir)).toEqual(NOTED);
   result(run(fresh, fresh.root, ["start", "task-a", "--repo", freshDir, "--brief", freshBrief]));
   const withoutCli = binWith(fresh, ON_PATH, false);
   expect(sessionStart(fresh, withoutCli, freshDir)).toEqual(SILENT);
+  expect(hook(fresh, freshBin, "SessionStart", freshDir, { hook_event_name: "SessionStart" })).toEqual(NOTED);
   for (const missing of ["jq"]) {
     const without = binWith(
       fresh,
@@ -158,7 +174,7 @@ test("AC-25 the session hook prints nothing and exits 0 over a store of a schema
       `without-${missing}`,
     );
     const ran = sessionStart(fresh, without, freshDir);
-    expect([ran.exitCode, ran.stdout]).toEqual([0, ""]);
+    expect([ran.exitCode, ran.stdout]).toEqual([0, NOTE]);
     expect(ran.stderr).toStartWith(`cniska-task: ${missing} is not on PATH`);
     expect(ran.stderr.split("\n")).toHaveLength(2);
   }
