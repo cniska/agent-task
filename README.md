@@ -12,7 +12,7 @@ agent-task records each coding-agent task on this machine, with the repository i
 - `agent-task project add <id>` adds a project, which a task can belong to, and `list --project <id>` shows that project's tasks alone.
 - `agent-task ask <name> "<text>"` queues an owner item, a question or a step only the owner can do; it is never started, `list` shows it apart from the ready and waiting tasks, and `done` closes it.
 - `agent-task halt "<reason>"` stops all agent work on this machine until the owner runs `agent-task resume`, and the plugin enforces it in every session.
-- The `cniska-task` Claude Code plugin tells every session that queued and running work lives in agent-task, and puts in its context every owner item, grouped by project, and the running and in-review tasks, each with whether its brief changed.
+- The `cniska-task` Claude Code plugin tells every session that queued and running work lives in agent-task and puts every owner item in its context, grouped by project. Where the working directory holds a running or in-review task's brief, it adds every running and in-review task, each with whether its brief changed.
 
 ## Install
 

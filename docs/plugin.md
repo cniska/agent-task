@@ -21,7 +21,7 @@ While a halt is raised, as `agent-task halted` reports it, the plugin stops the 
 - **agent-task commands**: a `Bash` or `PowerShell` command that runs only `agent-task`, with no shell operator, expansion or control character, goes through, so `halt` and `resume` still work.
 - **Unreadable input**: while halted, a call whose input the hook cannot read, without `jq` or not JSON, is refused.
 
-The hooks decide on `halted`'s exit status alone. When `agent-task` is missing, too old to know `halted`, or fails `--version`, calls go through and session start says the halt could not be checked.
+The hooks decide on `halted`'s exit status alone, and let calls through when they cannot ask it. When `agent-task` is missing or fails `--version`, session start prints only a line saying the halt could not be checked; when it is too old to know `halted`, that line comes before the note.
 
 ## Install
 
