@@ -1,14 +1,16 @@
 # Claude Code Plugin
 
-The `cniska-task` plugin, in `plugin/` and the `cniska` marketplace, tells every session where queued and running work lives, puts the running and in-review tasks in its context, and enforces a halt. It reads the store only through the CLI.
+The `cniska-task` plugin, in `plugin/` and the `cniska` marketplace, tells every session where queued and running work lives, puts the owner items and the running and in-review tasks in its context, and enforces a halt. It reads the store only through the CLI.
 
 ## What it does
 
 Whenever a session starts, resumes, clears or compacts, it adds a short note, `plugin/hooks/note.md`: queued and running work lives in agent-task, not in a ledger, a notes file or a plan, and `add`, `start`, `review` and `done` queue, start, hand back and close a task.
 
+Whenever the store holds an owner item, it adds the owner items after the note, from any directory, as `list --owner` prints them under a heading: one group per project, the unmapped last, each item with its text in full.
+
 When the working directory holds the brief of a running or in-review task, it adds the running and in-review tasks after the note as `list --started` prints them, `briefChanged` included, so the session sees a task whose brief no longer has the `briefSha` recorded when it started.
 
-The session hook asks agent-task with `list --started --brief-under` the session's directory, which runs no queued task's check, and puts what it prints in the context as it is, under a heading. It prints the note alone when that command is refused, `no_brief_under` included; it never exits with an error. Without `jq`, which reads the session's directory from the hook's input, it prints the note alone and leaves a line on stderr.
+The session hook asks agent-task with `list --started --brief-under` the session's directory, which runs no queued task's check, and puts what it prints in the context as it is, under a heading. It prints no owner item when `list --owner` is refused, `no_owner_items` included, and no task when `list --started --brief-under` is, `no_brief_under` included; it never exits with an error. Without `jq`, which reads the session's directory from the hook's input, it prints the note and the owner items and leaves a line on stderr.
 
 ## The halt
 

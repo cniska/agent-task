@@ -169,7 +169,7 @@ test("AC-43 list --project prints only that project's tasks and counts, list pri
   result(run(w, w.root, ["add", "ready-none", "--repo", dir, "--goal", "go"]));
   for (const id of ["site", "app"]) {
     const filtered = result(run(w, w.root, ["list", "--project", id]));
-    expect(filtered.counts).toEqual({ running: 1, review: 0, ready: 1, waiting: 1 });
+    expect(filtered.counts).toEqual({ running: 1, review: 0, ready: 1, waiting: 1, owner: 0 });
     const shown = listing(run(w, w.root, ["list", "--project", id]));
     expect([names(shown.tasks), names(shown.ready), names(shown.waiting)]).toEqual([
       [`run-${id}`],

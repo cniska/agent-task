@@ -6,6 +6,7 @@ readonly HALTED=1
 readonly UNCHECKED="cniska-task: agent-task could not say whether agent work on this machine is halted, so this session's edits, shell commands and agents go unchecked against a halt."
 readonly HALT_HEADING="cniska-task: all agent work on this machine is halted. Make no change: state your report and stop. Only the owner lifts the halt. agent-task halted reports:"
 readonly HEADING="cniska-task: the running and in-review tasks, as agent-task list --started prints them:"
+readonly OWNER_HEADING="cniska-task: what waits on the owner, by project, as agent-task list --owner prints it:"
 
 note() {
   printf 'cniska-task: %s\n' "$1" >&2
@@ -23,6 +24,12 @@ working_directory() {
 
 listed_tasks() {
   agent-task list --started --brief-under "$1" 2>/dev/null
+}
+
+owner_report() {
+  local items
+  items="$(agent-task list --owner 2>/dev/null </dev/null)" || return 0
+  printf '\n%s\n%s\n' "$OWNER_HEADING" "$items"
 }
 
 halt_report() {
@@ -43,6 +50,7 @@ main() {
   fi
   halt_report
   printf '%s\n' "$(<"${BASH_SOURCE[0]%/*}/note.md")"
+  owner_report
   if ! jq --version >/dev/null 2>&1; then
     note "jq is not on PATH, so $UNREAD"
     return 0

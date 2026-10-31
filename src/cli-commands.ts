@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { unreachable } from "./assert";
 import { type Command, type Outcome, type Runtime, usageError } from "./cli-contract";
-import { doctorView, listingView, projectsView, startedListingView, type View } from "./cli-views";
+import { doctorView, listingView, ownerView, projectsView, startedListingView, type View } from "./cli-views";
 import { messageOf } from "./coded-error";
 import { DOCTOR_USAGE, doctor } from "./doctor";
 import { HALT_USAGE, haltedNow, liftHalt, raiseHalt } from "./halt";
@@ -11,9 +11,11 @@ import { addProject, dropProject, listProjects } from "./projects";
 import { closeStore, isPriority, openStore, type Priority } from "./store";
 import {
   add,
+  ask,
   type Context,
   done,
   list,
+  listOwner,
   listStarted,
   listStartedUnder,
   map,
@@ -217,6 +219,33 @@ const mapCommand: Command = {
   },
 };
 
+function nameAndText(command: Command, positionals: readonly string[]): readonly [string, string] {
+  const [name, text, ...rest] = positionals;
+  if (name === undefined || !isText(text) || rest.length > 0)
+    refuseArguments(
+      command,
+      `takes one task name and one text, quoted, and got: ${positionals.join(" ") || "none"}`,
+    );
+  return [name, text];
+}
+
+const askCommand: Command = {
+  name: "ask",
+  usage: USAGE.ask,
+  summary:
+    "queue an owner item: a question for the owner or a step only the owner can do, in full, with its project and priority; it is never started, and done closes it; on an owner item's name, replace them",
+  run(args, runtime) {
+    const { positionals, values } = parsed(this, args, {
+      project: { type: "string" },
+      priority: { type: "string" },
+    });
+    const [name, text] = nameAndText(this, positionals);
+    const project = optionalValue(this, values, "project");
+    const priority = priorityValue(this, values);
+    return withContext(runtime, (context) => ask(context, { name, ask: text, project, priority }));
+  },
+};
+
 const reviewCommand: Command = {
   name: "review",
   usage: USAGE.review,
@@ -232,11 +261,12 @@ const listCommand: Command = {
   name: "list",
   usage: USAGE.list,
   summary:
-    "list the running and in-review tasks, flagging each whose brief changed since it started, then the queued tasks ready to start and those waiting, running each one's check; --started lists the running and in-review tasks alone and runs no check, and with --brief-under <dir> lists them only when one's brief sits under that directory; --project <id> lists only that project's tasks; --full prints every field of each task",
+    "list the running and in-review tasks, flagging each whose brief changed since it started, then the queued tasks ready to start and those waiting, running each one's check, and the owner items; --started lists the running and in-review tasks alone and runs no check, and with --brief-under <dir> lists them only when one's brief sits under that directory; --owner lists the owner items alone, grouped by project, the unmapped last, and refuses when there are none; --project <id> lists only that project's tasks and owner items; --full prints every field of each task",
   run(args, runtime) {
     const { positionals, values } = parsed(this, args, {
       started: { type: "boolean" },
       "brief-under": { type: "string" },
+      owner: { type: "boolean" },
       project: { type: "string" },
       full: { type: "boolean" },
     });
@@ -244,12 +274,15 @@ const listCommand: Command = {
     const started = values.started === true;
     const briefUnder = optionalValue(this, values, "brief-under");
     if (briefUnder !== null && !started) refuseArguments(this, "--brief-under takes --started");
+    const owner = values.owner === true;
+    if (owner && started) refuseArguments(this, "--owner and --started list different groups; pass one");
     const dir = briefUnder === null ? null : resolve(runtime.cwd, briefUnder);
     const project = optionalValue(this, values, "project");
     const view = viewOf(values);
     return withContext(runtime, (context) => {
       if (dir !== null) return startedListingView(listStartedUnder(context, dir, project), view);
       if (started) return startedListingView(listStarted(context, project), view);
+      if (owner) return ownerView(listOwner(context, project), view);
       return listingView(list(context, project), view);
     });
   },
@@ -269,7 +302,7 @@ const stopCommand: Command = {
 const doneCommand: Command = {
   name: "done",
   usage: USAGE.done,
-  summary: "remove a task, however its work ended",
+  summary: "remove a task or an owner item, however its work ended",
   run(args, runtime) {
     const name = oneName(this, parsed(this, args, {}).positionals);
     return withContext(runtime, (context) => done(context, name));
@@ -350,7 +383,7 @@ const haltCommand: Command = {
   name: "halt",
   usage: HALT_USAGE.halt,
   summary:
-    "halt all agent work on this machine, recording the reason, until the owner runs resume; while a halt is raised, add, start, wait, map, project add and project remove are refused, and so are the plugin's gated tools; on a raised halt, print it unchanged",
+    "halt all agent work on this machine, recording the reason, until the owner runs resume; while a halt is raised, add, start, wait, map, ask, project add and project remove are refused, and so are the plugin's gated tools; on a raised halt, print it unchanged",
   run(args, runtime) {
     const reason = oneReason(this, parsed(this, args, {}).positionals);
     return { value: { halt: raiseHalt(haltPath(runtime.env), reason, runtime.now()) }, status: 0 };
@@ -383,6 +416,7 @@ export const COMMANDS: readonly Command[] = [
   startCommand,
   waitCommand,
   mapCommand,
+  askCommand,
   reviewCommand,
   listCommand,
   stopCommand,

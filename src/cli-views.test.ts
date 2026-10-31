@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { doctorView, listingView, startedListingView } from "./cli-views";
+import { doctorView, listingView, ownerView, startedListingView } from "./cli-views";
 import type { Halt } from "./halt";
 import { named, projectNamed } from "./repo.test-support";
+import type { OwnerItem } from "./store";
 import type { Checked, Listed } from "./tasks";
 
 const ADDED = {
@@ -52,14 +53,29 @@ const WAITING: Checked = { ...READY, name: named("task-d"), after: [named("task-
 
 const HALT: Halt = { state: "raised", reason: "a flaw in the workflow", raised: "2026-10-16T12:00:00.000Z" };
 
-const LISTING = { tasks: [RUNNING, IN_REVIEW], halt: HALT, ready: [READY], waiting: [WAITING] };
+const OWNER: OwnerItem = {
+  name: named("ask-a"),
+  state: "owner",
+  project: projectNamed("site"),
+  priority: "high",
+  ask: "Which domain does the site use?",
+  added: "2026-10-16T09:00:00.000Z",
+};
+
+const LISTING = {
+  tasks: [RUNNING, IN_REVIEW],
+  halt: HALT,
+  ready: [READY],
+  waiting: [WAITING],
+  owner: [OWNER],
+};
 
 describe("the list views", () => {
   test("lead with the counts in each group, then print the fields an agent acts on by default", () => {
     const view = listingView(LISTING, "default");
-    expect(Object.keys(view)).toEqual(["counts", "halt", "tasks", "ready", "waiting"]);
+    expect(Object.keys(view)).toEqual(["counts", "halt", "tasks", "ready", "waiting", "owner"]);
     expect(view).toEqual({
-      counts: { running: 1, review: 1, ready: 1, waiting: 1 },
+      counts: { running: 1, review: 1, ready: 1, waiting: 1, owner: 1 },
       halt: { state: "raised", reason: "a flaw in the workflow", raised: "2026-10-16T12:00:00.000Z" },
       tasks: [
         {
@@ -79,6 +95,7 @@ describe("the list views", () => {
       ],
       ready: [{ name: READY.name, project: null, repo: "/work/repo" }],
       waiting: [{ name: WAITING.name, project: null, repo: "/work/repo" }],
+      owner: [{ name: OWNER.name, project: OWNER.project, ask: "Which domain does the site use?" }],
     });
   });
 
@@ -109,6 +126,15 @@ describe("the list views", () => {
       expect.any(Array),
     ]);
     expect([...view.ready, ...view.waiting]).toEqual([READY, WAITING]);
+    expect(view.owner).toEqual([OWNER]);
+    expect(Object.keys(view.owner[0] ?? {})).toEqual([
+      "name",
+      "project",
+      "state",
+      "priority",
+      "added",
+      "ask",
+    ]);
   });
 
   test("count the running and in-review tasks alone for the started listing", () => {
@@ -124,6 +150,28 @@ describe("the list views", () => {
         },
       ],
     });
+  });
+});
+
+describe("the owner view", () => {
+  test("counts every owner item and prints each group's project, name and items, every field with --full", () => {
+    const unmapped = { ...OWNER, name: named("ask-b"), project: null, ask: "Rotate the key" };
+    const groups = [
+      { project: projectNamed("site"), name: "The site", items: [OWNER] },
+      { project: null, name: null, items: [unmapped] },
+    ];
+    expect(ownerView(groups, "default")).toEqual({
+      counts: { owner: 2 },
+      owner: [
+        {
+          project: OWNER.project,
+          name: "The site",
+          items: [{ name: OWNER.name, project: OWNER.project, ask: "Which domain does the site use?" }],
+        },
+        { project: null, name: null, items: [{ name: unmapped.name, project: null, ask: "Rotate the key" }] },
+      ],
+    });
+    expect(ownerView(groups, "full").owner.map(({ items }) => items)).toEqual([[OWNER], [unmapped]]);
   });
 });
 

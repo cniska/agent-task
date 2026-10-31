@@ -911,12 +911,13 @@ test("AC-35 list leads with the counts in each group and prints by default, as t
   result(start(w, "stopped", dir, brief(briefs, "c.md")));
   result(run(w, w.root, ["stop", "stopped"]));
   result(add(w, "queued", dir, "do it", "--after", "stopped", "--waits", "the owner"));
+  result(run(w, w.root, ["ask", "ask-a", "Which domain does the site use?", "--project", "site"]));
   const ran = run(w, w.root, ["list"]);
   expect(decode(ran.stdout)).toEqual({
     command: "list",
     ok: true,
     result: {
-      counts: { running: 1, review: 1, ready: 1, waiting: 1 },
+      counts: { running: 1, review: 1, ready: 1, waiting: 1, owner: 1 },
       halt: { state: "none" },
       tasks: [
         { name: "task-a", project: "site", state: "running", brief: first, briefChanged: true },
@@ -924,13 +925,15 @@ test("AC-35 list leads with the counts in each group and prints by default, as t
       ],
       ready: [{ name: "stopped", project: null, repo: dir }],
       waiting: [{ name: "queued", project: null, repo: dir }],
+      owner: [{ name: "ask-a", project: "site", ask: "Which domain does the site use?" }],
     },
   });
-  expect(Object.keys(result(ran))).toEqual(["counts", "halt", "tasks", "ready", "waiting"]);
+  expect(Object.keys(result(ran))).toEqual(["counts", "halt", "tasks", "ready", "waiting", "owner"]);
   for (const header of [
     "tasks[2]{name,project,state,brief,briefChanged}:",
     "ready[1]{name,project,repo}:",
     "waiting[1]{name,project,repo}:",
+    "owner[1]{name,project,ask}:",
   ])
     expect(ran.stdout).toContain(`\n  ${header}\n`);
   const full = listing(run(w, w.root, ["list", "--full"]));

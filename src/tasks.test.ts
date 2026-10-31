@@ -4,13 +4,15 @@ import { join } from "node:path";
 import { liftHalt, raiseHalt } from "./halt";
 import { addProject } from "./projects";
 import { brief, git, named, projectNamed, removeScratchDirs, repo, scratchDir } from "./repo.test-support";
-import { insertQueued, openStore, taskByName } from "./store";
+import { heldByName, insertQueued, openStore, type Priority } from "./store";
 import {
   type AddRequest,
   add,
+  ask,
   type Context,
   done,
   list,
+  listOwner,
   listStarted,
   listStartedUnder,
   map,
@@ -28,7 +30,7 @@ const LATER = new Date("2026-10-16T11:00:00.000Z");
 
 const UNQUEUED = { project: null, goal: null, plan: null, priority: null, waits: null };
 
-const EMPTY = { tasks: [], halt: { state: "none" } as const, ready: [], waiting: [] };
+const EMPTY = { tasks: [], halt: { state: "none" } as const, ready: [], waiting: [], owner: [] };
 
 const CHECK_TIMEOUT_MS = 5000;
 
@@ -158,7 +160,7 @@ describe("add", () => {
     expect(() => add(ctx, request("Task_A", dir))).toThrow(
       expect.objectContaining({ code: "invalid_name", meta: { name: "Task_A" } }),
     );
-    expect(taskByName(ctx.store, named("task-a"))).toBeNull();
+    expect(heldByName(ctx.store, named("task-a"))).toBeNull();
   });
 });
 
@@ -250,7 +252,7 @@ describe("start", () => {
           "agent-task done task-b; agent-task done task-c once each has landed, or agent-task wait task-a [--after <name>]... [--waits <text>] [--until <command>] to wait after fewer",
       }),
     );
-    expect(taskByName(ctx.store, named("task-a"))).toEqual(task);
+    expect(heldByName(ctx.store, named("task-a"))).toEqual(task);
     done(ctx, "task-b");
     done(ctx, "task-c");
     expect(
@@ -283,7 +285,7 @@ describe("start", () => {
       expect(() => start(ctx, { project: null, name: "a", repo: dir, brief: path, session: null })).toThrow(
         expect.objectContaining({ code: "brief_unreadable", meta: { brief: path } }),
       );
-    expect(taskByName(ctx.store, named("a"))).toBeNull();
+    expect(heldByName(ctx.store, named("a"))).toBeNull();
   });
 
   test("refuses a running name, naming the state and what it admits, and changes nothing", () => {
@@ -315,7 +317,7 @@ describe("start", () => {
           "running-one is running, which admits: agent-task wait running-one [--after <name>]... [--waits <text>] [--until <command>]; agent-task map running-one --project <id>; agent-task review running-one; agent-task stop running-one; agent-task done running-one",
       }),
     );
-    expect(taskByName(ctx.store, named("running-one"))).toEqual(task);
+    expect(heldByName(ctx.store, named("running-one"))).toEqual(task);
   });
 });
 
@@ -360,8 +362,8 @@ describe("wait", () => {
     expect(() => wait(ctx, { name: "task-a", after: ["task-z"], waits: "x", until: null })).toThrow(
       expect.objectContaining({ code: "unknown_task", meta: { name: "task-z", act: "wait" } }),
     );
-    expect(taskByName(ctx.store, named("task-d"))).toEqual(task);
-    expect(taskByName(ctx.store, named("task-a"))).toEqual(queued);
+    expect(heldByName(ctx.store, named("task-d"))).toEqual(task);
+    expect(heldByName(ctx.store, named("task-a"))).toEqual(queued);
   });
 });
 
@@ -394,7 +396,7 @@ describe("review", () => {
     expect(() => review(ctx, "task-c")).toThrow(
       expect.objectContaining({ code: "unknown_task", meta: { name: "task-c", act: "review" } }),
     );
-    expect(taskByName(ctx.store, named("task-a"))).toEqual(reviewed);
+    expect(heldByName(ctx.store, named("task-a"))).toEqual(reviewed);
   });
 
   test("a task in review refuses start as taken, takes waits, and goes back to queued by stop forgetting the review time", () => {
@@ -581,7 +583,7 @@ describe("stop", () => {
         resolve: "agent-task start task-b --repo <path> --brief <file> [--project <id>] [--session <id>]",
       }),
     );
-    expect(taskByName(ctx.store, named("task-a"))).toMatchObject({ state: "queued" });
+    expect(heldByName(ctx.store, named("task-a"))).toMatchObject({ state: "queued" });
   });
 });
 
@@ -599,7 +601,7 @@ describe("done", () => {
     const again = added(ctx, "task-a", { after: [] });
     added(ctx, "task-b", { after: ["task-a"] });
     expect(done(ctx, "task-a")).toEqual(again.task);
-    expect(taskByName(ctx.store, named("task-a"))).toBeNull();
+    expect(heldByName(ctx.store, named("task-a"))).toBeNull();
     expect(list(ctx, null).ready.map(({ name, after }) => [name, after])).toEqual([[named("task-b"), []]]);
     expect(list(ctx, null).waiting).toEqual([]);
     add(ctx, request("task-a", again.dir));
@@ -660,8 +662,8 @@ describe("projects", () => {
     expect(() => map(ctx, "task-z", "site")).toThrow(
       expect.objectContaining({ code: "unknown_task", meta: { name: "task-z", act: "map" } }),
     );
-    expect(taskByName(ctx.store, named("task-c"))).toBeNull();
-    expect(taskByName(ctx.store, named("task-b"))).toMatchObject({ project: "app" });
+    expect(heldByName(ctx.store, named("task-c"))).toBeNull();
+    expect(heldByName(ctx.store, named("task-b"))).toMatchObject({ project: "app" });
   });
 
   test("add of a queued name without a project unmaps it, as it replaces every field", () => {
@@ -708,6 +710,121 @@ describe("projects", () => {
   });
 });
 
+function asked(ctx: Context, name: string, project: string | null = null, priority: Priority | null = null) {
+  return ask(ctx, { name, ask: `Answer ${name}?`, project, priority });
+}
+
+function refused(act: string) {
+  return expect.objectContaining({
+    code: "waits_on_owner",
+    meta: { name: "ask-a", act, ask: "Answer ask-a?" },
+    resolve:
+      "agent-task done ask-a once the owner has answered or done it; agent-task ask ask-a <text> [--project <id>] [--priority urgent|high|medium|low] or agent-task map ask-a --project <id> changes it",
+  });
+}
+
+describe("owner items", () => {
+  test("ask records an owner item with its text, project, priority and time, and replaces them on its name, keeping the time", () => {
+    const ctx = context();
+    addedProject(ctx, "site");
+    expect(asked(ctx, "ask-a", "site", "high")).toEqual({
+      name: named("ask-a"),
+      state: "owner",
+      project: projectNamed("site"),
+      priority: "high",
+      ask: "Answer ask-a?",
+      added: STARTED.toISOString(),
+    });
+    expect(ask(later(ctx), { name: "ask-a", ask: "Which domain?", project: null, priority: null })).toEqual({
+      name: named("ask-a"),
+      state: "owner",
+      project: null,
+      priority: null,
+      ask: "Which domain?",
+      added: STARTED.toISOString(),
+    });
+    expect(() => asked(ctx, "ask-b", "nowhere")).toThrow(
+      expect.objectContaining({ code: "unknown_project", meta: { id: "nowhere" } }),
+    );
+    expect(heldByName(ctx.store, named("ask-b"))).toBeNull();
+  });
+
+  test("ask refuses a name held by a task, naming what the task admits, and changes nothing", () => {
+    const ctx = context();
+    const { task } = added(ctx, "task-a");
+    expect(() => asked(ctx, "task-a")).toThrow(
+      expect.objectContaining({ code: "name_taken", meta: expect.objectContaining({ state: "queued" }) }),
+    );
+    expect(heldByName(ctx.store, named("task-a"))).toEqual(task);
+  });
+
+  test("add, start, wait, review and stop refuse an owner item, naming done and ask, and leave it as it was", () => {
+    const ctx = context();
+    const item = asked(ctx, "ask-a");
+    const dir = repo();
+    expect(() => add(ctx, request("ask-a", dir))).toThrow(refused("add"));
+    expect(() =>
+      start(ctx, { name: "ask-a", project: null, repo: dir, brief: brief(dir), session: null }),
+    ).toThrow(refused("start"));
+    expect(() => wait(ctx, { name: "ask-a", after: [], waits: "x", until: null })).toThrow(refused("wait"));
+    expect(() => review(ctx, "ask-a")).toThrow(refused("review"));
+    expect(() => stop(ctx, "ask-a")).toThrow(refused("stop"));
+    expect(heldByName(ctx.store, named("ask-a"))).toEqual(item);
+  });
+
+  test("map maps an owner item, done closes it, and a task waiting after it starts once it is closed", () => {
+    const ctx = context();
+    addedProject(ctx, "site");
+    asked(ctx, "ask-a");
+    expect(map(ctx, "ask-a", "site")).toMatchObject({ name: "ask-a", state: "owner", project: "site" });
+    const { dir } = added(ctx, "task-a", { after: ["ask-a"] });
+    expect(() =>
+      start(ctx, { name: "task-a", project: null, repo: dir, brief: brief(dir), session: null }),
+    ).toThrow(expect.objectContaining({ code: "blocked", meta: { name: "task-a", after: ["ask-a"] } }));
+    expect(done(ctx, "ask-a")).toMatchObject({ name: "ask-a", state: "owner" });
+    expect(
+      start(ctx, { name: "task-a", project: null, repo: dir, brief: brief(dir), session: null }).state,
+    ).toBe("running");
+  });
+
+  test("list prints the owner items apart from ready and waiting, by priority, time and name, filtered to a project", () => {
+    const ctx = context();
+    addedProject(ctx, "site");
+    added(ctx, "task-a");
+    asked(ctx, "ask-low", "site", "low");
+    asked(ctx, "ask-urgent", null, "urgent");
+    asked(ctx, "ask-none", "site");
+    const listing = list(ctx, null);
+    expect(listedNames(listing)).toEqual({ tasks: [], ready: [named("task-a")], waiting: [] });
+    expect(listing.owner.map(({ name }) => name)).toEqual([
+      named("ask-urgent"),
+      named("ask-low"),
+      named("ask-none"),
+    ]);
+    expect(list(ctx, "site").owner.map(({ name }) => name)).toEqual([named("ask-low"), named("ask-none")]);
+  });
+
+  test("list --owner groups the owner items by project, the unmapped last, and refuses when none are listed", () => {
+    const ctx = context();
+    const site = addedProject(ctx, "site");
+    addedProject(ctx, "app");
+    expect(() => listOwner(ctx, null)).toThrow(
+      expect.objectContaining({ code: "no_owner_items", meta: { project: null } }),
+    );
+    added(ctx, "task-a");
+    const mapped = asked(ctx, "ask-a", "site");
+    const unmapped = asked(ctx, "ask-b");
+    expect(listOwner(ctx, null)).toEqual([
+      { project: site.id, name: "The site", items: [mapped] },
+      { project: null, name: null, items: [unmapped] },
+    ]);
+    expect(listOwner(ctx, "site")).toEqual([{ project: site.id, name: "The site", items: [mapped] }]);
+    expect(() => listOwner(ctx, "app")).toThrow(
+      expect.objectContaining({ code: "no_owner_items", meta: { project: "app" } }),
+    );
+  });
+});
+
 describe("a halt", () => {
   test("refuses add, start, wait and map while raised, recording nothing, lists the halt, and admits them again once lifted", () => {
     const ctx = context();
@@ -727,6 +844,9 @@ describe("a halt", () => {
     ).toThrow(halted);
     expect(() => wait(ctx, { name: "task-a", after: [], waits: null, until: "exit 0" })).toThrow(halted);
     expect(() => map(ctx, "task-a", "site")).toThrow(halted);
+    expect(() => ask(ctx, { name: "ask-a", ask: "Which domain?", project: null, priority: null })).toThrow(
+      halted,
+    );
     expect(list(ctx, null)).toEqual(before);
     liftHalt(ctx.haltPath);
     expect(list(ctx, null).halt).toEqual({ state: "none" });

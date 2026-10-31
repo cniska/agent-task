@@ -3,8 +3,9 @@ export const USAGE = {
   start: "agent-task start <name> --repo <path> --brief <file> [--project <id>] [--session <id>]",
   wait: "agent-task wait <name> [--after <name>]... [--waits <text>] [--until <command>]",
   map: "agent-task map <name> --project <id>",
+  ask: "agent-task ask <name> <text> [--project <id>] [--priority urgent|high|medium|low]",
   review: "agent-task review <name>",
-  list: "agent-task list [--started [--brief-under <dir>]] [--project <id>] [--full]",
+  list: "agent-task list [--started [--brief-under <dir>] | --owner] [--project <id>] [--full]",
   stop: "agent-task stop <name>",
   done: "agent-task done <name>",
 } as const;
