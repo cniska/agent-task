@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { doctorView, listingView, startedListingView } from "./cli-views";
+import type { Halt } from "./halt";
 import { named } from "./repo.test-support";
 import type { Checked, Listed } from "./tasks";
 
@@ -42,14 +43,17 @@ const READY: Checked = {
 
 const WAITING: Checked = { ...READY, name: named("task-d"), after: [named("task-c")], waits: "the owner" };
 
-const LISTING = { tasks: [RUNNING, IN_REVIEW], ready: [READY], waiting: [WAITING] };
+const HALT: Halt = { state: "raised", reason: "a flaw in the workflow", raised: "2026-10-16T12:00:00.000Z" };
+
+const LISTING = { tasks: [RUNNING, IN_REVIEW], halt: HALT, ready: [READY], waiting: [WAITING] };
 
 describe("the list views", () => {
   test("lead with the counts in each group, then print the fields an agent acts on by default", () => {
     const view = listingView(LISTING, "default");
-    expect(Object.keys(view)).toEqual(["counts", "tasks", "ready", "waiting"]);
+    expect(Object.keys(view)).toEqual(["counts", "halt", "tasks", "ready", "waiting"]);
     expect(view).toEqual({
       counts: { running: 1, review: 1, ready: 1, waiting: 1 },
+      halt: { state: "raised", reason: "a flaw in the workflow", raised: "2026-10-16T12:00:00.000Z" },
       tasks: [
         { name: RUNNING.name, state: "running", brief: "/work/briefs/a.md", briefChanged: true },
         { name: IN_REVIEW.name, state: "review", brief: "/work/briefs/a.md", briefChanged: false },

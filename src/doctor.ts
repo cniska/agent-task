@@ -25,12 +25,18 @@ const RERUN = `then run ${DOCTOR} again`;
 
 const MIGRATING_LIST = "agent-task list";
 
-const HOOKS = "the plugin's SessionStart hook (session-start.sh)";
+const HOOKS = "the plugin's hooks (session-start.sh and pre-tool-use.sh)";
 
 const HOOK_PROGRAMS = [
-  { program: "bash", lost: `${HOOKS} cannot start, so it prints nothing` },
-  { program: "agent-task", lost: `${HOOKS} prints nothing` },
-  { program: "jq", lost: `${HOOKS} prints its note but no running task` },
+  { program: "bash", lost: `${HOOKS} cannot start, so a session sees no note and no halt is enforced` },
+  {
+    program: "agent-task",
+    lost: `${HOOKS} cannot check for a halt, so none is enforced and the session sees no note`,
+  },
+  {
+    program: "jq",
+    lost: `${HOOKS} print the note but no running task, and while a halt is raised refuse even agent-task commands`,
+  },
 ] as const;
 
 const STORE_REFUSALS = ["store_version", "store_unopenable", "store_busy"];

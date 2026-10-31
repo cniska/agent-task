@@ -30,7 +30,19 @@ describe("the cli", () => {
       command: "agent-task",
       ok: true,
       result: {
-        commands: ["add", "start", "wait", "review", "list", "stop", "done", "doctor"].map((name) => ({
+        commands: [
+          "add",
+          "start",
+          "wait",
+          "review",
+          "list",
+          "stop",
+          "done",
+          "halt",
+          "resume",
+          "halted",
+          "doctor",
+        ].map((name) => ({
           name,
         })),
         flags: [{ name: "--help" }, { name: "--version" }],
@@ -46,7 +58,7 @@ describe("the cli", () => {
     expect(cli("list")).toEqual({
       status: 0,
       stdout:
-        "command: list\nok: true\nresult:\n  counts:\n    running: 0\n    review: 0\n    ready: 0\n    waiting: 0\n  tasks: []\n  ready: []\n  waiting: []\n",
+        "command: list\nok: true\nresult:\n  counts:\n    running: 0\n    review: 0\n    ready: 0\n    waiting: 0\n  halt:\n    state: none\n  tasks: []\n  ready: []\n  waiting: []\n",
       stderr: "",
     });
   });
@@ -91,9 +103,9 @@ describe("the cli", () => {
         message: "frobnicate is not an agent-task command; agent-task --help lists them",
         meta: {
           name: "frobnicate",
-          usage: "agent-task add|start|wait|review|list|stop|done|doctor|--help|--version",
+          usage: "agent-task add|start|wait|review|list|stop|done|halt|resume|halted|doctor|--help|--version",
         },
-        resolve: "agent-task add|start|wait|review|list|stop|done|doctor|--help|--version",
+        resolve: "agent-task add|start|wait|review|list|stop|done|halt|resume|halted|doctor|--help|--version",
       },
     });
   });

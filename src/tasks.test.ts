@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { liftHalt, raiseHalt } from "./halt";
 import { brief, git, named, removeScratchDirs, repo, scratchDir } from "./repo.test-support";
 import { insertQueued, openStore, taskByName } from "./store";
 import {
@@ -25,15 +26,17 @@ const LATER = new Date("2026-10-16T11:00:00.000Z");
 
 const UNQUEUED = { goal: null, plan: null, priority: null, waits: null };
 
-const EMPTY = { tasks: [], ready: [], waiting: [] };
+const EMPTY = { tasks: [], halt: { state: "none" } as const, ready: [], waiting: [] };
 
 const CHECK_TIMEOUT_MS = 5000;
 
 const SHORT_CHECK_TIMEOUT_MS = 50;
 
 function context(at: Date = STARTED): Context {
+  const dir = scratchDir();
   return {
-    store: openStore(join(scratchDir(), "tasks.db"), 0),
+    store: openStore(join(dir, "tasks.db"), 0),
+    haltPath: join(dir, "halt.json"),
     processEnv: process.env,
     now: () => at,
     untilTimeoutMs: CHECK_TIMEOUT_MS,
@@ -579,5 +582,29 @@ describe("done", () => {
       expect(() => act(ctx, "Task_A")).toThrow(
         expect.objectContaining({ code: "invalid_name", meta: { name: "Task_A" } }),
       );
+  });
+});
+
+describe("a halt", () => {
+  test("refuses add, start and wait while raised, recording nothing, lists the halt, and admits them again once lifted", () => {
+    const ctx = context();
+    const queued = added(ctx, "task-a");
+    const dir = repo();
+    const halt = raiseHalt(ctx.haltPath, "a flaw in the workflow", LATER);
+    const before = list(ctx);
+    expect(before.halt).toEqual(halt);
+    const halted = expect.objectContaining({ code: "halted", meta: halt });
+    expect(() => add(ctx, request("task-b", dir))).toThrow(halted);
+    expect(() => start(ctx, { name: "task-c", repo: dir, brief: brief(dir), session: null })).toThrow(halted);
+    expect(() => start(ctx, { name: "task-a", repo: queued.dir, brief: brief(dir), session: null })).toThrow(
+      halted,
+    );
+    expect(() => wait(ctx, { name: "task-a", after: [], waits: null, until: "exit 0" })).toThrow(halted);
+    expect(list(ctx)).toEqual(before);
+    liftHalt(ctx.haltPath);
+    expect(list(ctx).halt).toEqual({ state: "none" });
+    expect(start(ctx, { name: "task-a", repo: queued.dir, brief: brief(dir), session: null }).state).toBe(
+      "running",
+    );
   });
 });

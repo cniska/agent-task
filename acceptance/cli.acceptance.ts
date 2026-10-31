@@ -35,7 +35,19 @@ test("AC-19 no command prints what list prints, --help lists the commands and th
     command: "agent-task",
     ok: true,
     result: {
-      commands: ["add", "start", "wait", "review", "list", "stop", "done", "doctor"].map((name) => ({
+      commands: [
+        "add",
+        "start",
+        "wait",
+        "review",
+        "list",
+        "stop",
+        "done",
+        "halt",
+        "resume",
+        "halted",
+        "doctor",
+      ].map((name) => ({
         name,
         usage: expect.stringMatching(new RegExp(`^agent-task ${name}`)),
         summary: expect.any(String),

@@ -4,7 +4,8 @@ import { type Command, type Outcome, type Runtime, usageError } from "./cli-cont
 import { doctorView, listingView, startedListingView, type View } from "./cli-views";
 import { messageOf } from "./coded-error";
 import { DOCTOR_USAGE, doctor } from "./doctor";
-import { storePath } from "./paths";
+import { HALT_USAGE, haltedNow, liftHalt, raiseHalt } from "./halt";
+import { haltPath, storePath } from "./paths";
 import { closeStore, isPriority, openStore, type Priority } from "./store";
 import {
   add,
@@ -61,6 +62,13 @@ function oneName(command: Command, positionals: readonly string[]): string {
   return name;
 }
 
+function oneReason(command: Command, positionals: readonly string[]): string {
+  const [reason, ...rest] = positionals;
+  if (!isText(reason) || rest.length > 0)
+    refuseArguments(command, `takes one reason, quoted, and got: ${positionals.join(" ") || "none"}`);
+  return reason;
+}
+
 function isText(value: unknown): value is string {
   return typeof value === "string" && value.trim() !== "";
 }
@@ -110,6 +118,7 @@ function withContext(runtime: Runtime, act: (context: Context) => unknown): Outc
     return {
       value: act({
         store,
+        haltPath: haltPath(runtime.env),
         processEnv: runtime.processEnv,
         now: runtime.now,
         untilTimeoutMs: runtime.untilTimeoutMs,
@@ -264,6 +273,38 @@ const doctorCommand: Command = {
   },
 };
 
+const haltCommand: Command = {
+  name: "halt",
+  usage: HALT_USAGE.halt,
+  summary:
+    "halt all agent work on this machine, recording the reason, until the owner runs resume; while a halt is raised, add, start and wait are refused, and so are the plugin's gated tools; on a raised halt, print it unchanged",
+  run(args, runtime) {
+    const reason = oneReason(this, parsed(this, args, {}).positionals);
+    return { value: { halt: raiseHalt(haltPath(runtime.env), reason, runtime.now()) }, status: 0 };
+  },
+};
+
+const resumeCommand: Command = {
+  name: "resume",
+  usage: HALT_USAGE.resume,
+  summary: "lift the halt, the owner's act, printing the halt as it was, or none when none was raised",
+  run(args, runtime) {
+    noArguments(this, parsed(this, args, {}).positionals);
+    return { value: { halt: liftHalt(haltPath(runtime.env)) }, status: 0 };
+  },
+};
+
+const haltedCommand: Command = {
+  name: "halted",
+  usage: HALT_USAGE.halted,
+  summary:
+    "print that no halt is raised, or while one is, refuse halted naming its reason; a halt recorded but unreadable counts as raised",
+  run(args, runtime) {
+    noArguments(this, parsed(this, args, {}).positionals);
+    return { value: { halt: haltedNow(haltPath(runtime.env)) }, status: 0 };
+  },
+};
+
 export const COMMANDS: readonly Command[] = [
   addCommand,
   startCommand,
@@ -272,5 +313,8 @@ export const COMMANDS: readonly Command[] = [
   listCommand,
   stopCommand,
   doneCommand,
+  haltCommand,
+  resumeCommand,
+  haltedCommand,
   doctorCommand,
 ];

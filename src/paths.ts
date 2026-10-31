@@ -7,6 +7,8 @@ const DATA_NAME = "agent-task";
 
 const STORE_FILE = "tasks.db";
 
+const HALT_FILE = "halt.json";
+
 function homeDir(env: Env): string {
   return env.home ?? userInfo().homedir;
 }
@@ -18,4 +20,8 @@ export function dataDir(env: Env): string {
 
 export function storePath(env: Env): string {
   return join(dataDir(env), STORE_FILE);
+}
+
+export function haltPath(env: Env): string {
+  return join(dataDir(env), HALT_FILE);
 }

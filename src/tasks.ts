@@ -4,6 +4,7 @@ import { unreachable } from "./assert";
 import { refusals } from "./coded-error";
 import { permits } from "./file";
 import { blobSha, mainWorkingTree, type ProcessEnv } from "./git";
+import { type Halt, readHalt, refuseWhileHalted } from "./halt";
 import {
   type InReview,
   insertQueued,
@@ -30,6 +31,7 @@ import { runCheck, type UntilState } from "./until";
 
 export type Context = {
   readonly store: Store;
+  readonly haltPath: string;
   readonly processEnv: ProcessEnv;
   readonly now: () => Date;
   readonly untilTimeoutMs: number;
@@ -152,7 +154,8 @@ export type AddRequest = {
   readonly until: string | null;
 };
 
-export function add({ store, processEnv, now }: Context, request: AddRequest): Queued {
+export function add({ store, haltPath, processEnv, now }: Context, request: AddRequest): Queued {
+  refuseWhileHalted(haltPath);
   const name = parseName(request.name);
   const repo = mainWorkingTree(request.repo, processEnv);
   if (request.plan !== null && !permits(request.plan, constants.R_OK))
@@ -183,7 +186,8 @@ export type StartRequest = {
 
 const UNQUEUED = { goal: null, plan: null, priority: null, waits: null };
 
-export function start({ store, processEnv, now }: Context, request: StartRequest): Running {
+export function start({ store, haltPath, processEnv, now }: Context, request: StartRequest): Running {
+  refuseWhileHalted(haltPath);
   const name = parseName(request.name);
   const repo = mainWorkingTree(request.repo, processEnv);
   const briefSha = blobSha(request.brief, processEnv);
@@ -205,7 +209,8 @@ export type WaitRequest = {
   readonly until: string | null;
 };
 
-export function wait({ store }: Context, request: WaitRequest): Task {
+export function wait({ store, haltPath }: Context, request: WaitRequest): Task {
+  refuseWhileHalted(haltPath);
   const name = parseName(request.name);
   const after = heldNames(store, "wait", request.after);
   const waiting = setWaiting(store, name, { after, waits: request.waits, until: request.until });
@@ -229,6 +234,7 @@ export type StartedListing = {
 };
 
 export type Listing = StartedListing & {
+  readonly halt: Halt;
   readonly ready: readonly Checked[];
   readonly waiting: readonly Checked[];
 };
@@ -270,6 +276,7 @@ export function list(context: Context): Listing {
   const queued = queuedTasks(context.store).map((task) => checked(task, context));
   return {
     ...listStarted(context),
+    halt: readHalt(context.haltPath),
     ready: queued.filter(isReady),
     waiting: queued.filter((task) => !isReady(task)),
   };

@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { decode } from "@toon-format/toon";
 import {
@@ -87,7 +87,10 @@ function context(ran: Ran): string {
 
 const NOTED = { exitCode: 0, stdout: NOTE, stderr: "" };
 
-const SILENT = { exitCode: 0, stdout: "", stderr: "" };
+const UNCHECKED_LINE =
+  "cniska-task: agent-task could not say whether agent work on this machine is halted, so this session's edits, shell commands and agents go unchecked against a halt.\n";
+
+const UNCHECKED = { exitCode: 0, stdout: UNCHECKED_LINE, stderr: "" };
 
 test("AC-24 the session hook adds its note naming agent-task's commands from any directory, then the running and in-review tasks where the working directory holds one of their briefs", () => {
   const w = world();
@@ -117,7 +120,7 @@ test("AC-24 the session hook adds its note naming agent-task's commands from any
   ])
     expect(NOTE).toContain(named);
   expect(pluginName()).toBe("cniska-task");
-  expect(Object.keys(registeredHooks())).toEqual(["SessionStart"]);
+  expect(Object.keys(registeredHooks())).toEqual(["SessionStart", "PreToolUse"]);
   expect(hookOf("SessionStart").matcher?.split("|").toSorted()).toEqual([
     "clear",
     "compact",
@@ -147,7 +150,7 @@ test("AC-24 the session hook adds its note naming agent-task's commands from any
   expect(sessionStart(w, bin, join(dir, "missing"), dir)).toEqual(NOTED);
 });
 
-test("AC-25 the session hook prints its note alone with no task started, over a store it cannot read and from input naming no directory, prints nothing with no agent-task on PATH, and adds a stderr line without jq", () => {
+test("AC-25 the session hook prints its note alone with no task started, over a store it cannot read and from input naming no directory, says the halt could not be checked with no agent-task on PATH, and adds a stderr line without jq", () => {
   const w = world();
   const dir = repo(w);
   const file = brief(dir, "brief.md");
@@ -164,7 +167,7 @@ test("AC-25 the session hook prints its note alone with no task started, over a 
   expect(sessionStart(fresh, freshBin, freshDir)).toEqual(NOTED);
   result(run(fresh, fresh.root, ["start", "task-a", "--repo", freshDir, "--brief", freshBrief]));
   const withoutCli = binWith(fresh, ON_PATH, false);
-  expect(sessionStart(fresh, withoutCli, freshDir)).toEqual(SILENT);
+  expect(sessionStart(fresh, withoutCli, freshDir)).toEqual(UNCHECKED);
   expect(hook(fresh, freshBin, "SessionStart", freshDir, { hook_event_name: "SessionStart" })).toEqual(NOTED);
   for (const missing of ["jq"]) {
     const without = binWith(
@@ -217,4 +220,124 @@ test("AC-34 list --started prints the started tasks alone and runs no queued tas
     { name: "marking", untilState: "met" },
   ]);
   expect(existsSync(marker)).toBe(true);
+});
+
+const REASON = "a flaw in the workflow";
+
+const HALTED_LINE =
+  "cniska-task: all agent work on this machine is halted, so this tool call is refused. Make no further change: state your report and stop. Only the owner lifts the halt. agent-task halted reports:";
+
+const HALT_HEADING =
+  "cniska-task: all agent work on this machine is halted. Make no change: state your report and stop. Only the owner lifts the halt. agent-task halted reports:";
+
+function stubCli(w: World, name: string, script: string): string {
+  const bin = binWith(w, ON_PATH, false, name);
+  const path = join(bin, "agent-task");
+  writeFileSync(path, `#!/bin/sh\n${script}\n`);
+  chmodSync(path, 0o755);
+  return bin;
+}
+
+function olderCli(w: World): string {
+  return stubCli(
+    w,
+    "older",
+    'if [ "$1" = --version ]; then echo 0.2.1; exit 0; fi\nprintf "command: agent-task\\nok: false\\nerror:\\n  kind: usage\\n  code: unknown_command\\n" >&2\nexit 2',
+  );
+}
+
+function toolCall(w: World, bin: string, tool: string, toolInput: unknown): Ran {
+  return hook(w, bin, "PreToolUse", w.root, {
+    hook_event_name: "PreToolUse",
+    cwd: w.root,
+    tool_name: tool,
+    tool_input: toolInput,
+  });
+}
+
+const EDIT = { file_path: "/work/a.ts", old_string: "a", new_string: "b" };
+
+const PASSED = { exitCode: 0, stdout: "", stderr: "" };
+
+function refused(ran: Ran, halted: string): void {
+  expect([ran.exitCode, ran.stdout]).toEqual([2, ""]);
+  expect(ran.stderr).toBe(`${HALTED_LINE}\n${halted}`);
+  expect(ran.stderr).toContain(REASON);
+}
+
+test("AC-39 the tool hook refuses edits, writes, agents and every shell command but agent-task's alone while a halt is raised, refuses input it cannot read, and lets every call through when it cannot ask agent-task", () => {
+  const w = world();
+  const bin = binWith(w, ON_PATH, true);
+  expect(hookOf("PreToolUse").matcher?.split("|").toSorted()).toEqual([
+    "Agent",
+    "Bash",
+    "Edit",
+    "EnterWorktree",
+    "Monitor",
+    "NotebookEdit",
+    "PowerShell",
+    "Workflow",
+    "Write",
+  ]);
+  expect(toolCall(w, bin, "Edit", EDIT)).toEqual(PASSED);
+  expect(toolCall(w, bin, "Bash", { command: "ls" })).toEqual(PASSED);
+  result(run(w, w.root, ["halt", REASON]));
+  const halted = run(w, w.root, ["halted"]).stderr;
+  expect(halted).toContain(REASON);
+  for (const [tool, input] of [
+    ["Edit", EDIT],
+    ["Write", { file_path: "/work/a.ts", content: "a" }],
+    ["NotebookEdit", { notebook_path: "/work/a.ipynb", new_source: "a" }],
+    ["Agent", { description: "work", prompt: "work" }],
+    ["Monitor", { command: "agent-task list" }],
+  ] as const)
+    refused(toolCall(w, bin, tool, input), halted);
+  for (const command of [
+    "ls",
+    "agent-task list && rm -rf x",
+    "agent-task list; ls",
+    "agent-task $(ls)",
+    "agent-task `ls`",
+    "agent-task list | sh",
+    "agent-task list > x",
+    "agent-task list\nls",
+    "agent-taskx",
+  ])
+    refused(toolCall(w, bin, "Bash", { command }), halted);
+  for (const command of ["agent-task list", 'agent-task halt "another reason"', "agent-task resume"])
+    expect(toolCall(w, bin, "Bash", { command })).toEqual(PASSED);
+  expect(toolCall(w, bin, "PowerShell", { command: "agent-task list" })).toEqual(PASSED);
+  const unparsed = spawnSync(SHELL, ["-c", hookOf("PreToolUse").command], {
+    cwd: w.root,
+    encoding: "utf8",
+    input: "not json",
+    env: { ...w.env, PATH: bin, CLAUDE_PLUGIN_ROOT: PLUGIN },
+  });
+  expect(unparsed.status).toBe(2);
+  const withoutJq = binWith(w, ["bash", "git"], true, "without-jq");
+  refused(toolCall(w, withoutJq, "Bash", { command: "agent-task list" }), halted);
+  const withoutCli = binWith(w, ON_PATH, false, "without-cli");
+  expect(toolCall(w, withoutCli, "Edit", EDIT)).toEqual(PASSED);
+  expect(toolCall(w, olderCli(w), "Edit", EDIT)).toEqual(PASSED);
+  expect(toolCall(w, stubCli(w, "broken", "exit 1"), "Edit", EDIT)).toEqual(PASSED);
+  result(run(w, w.root, ["resume"]));
+  expect(toolCall(w, bin, "Edit", EDIT)).toEqual(PASSED);
+});
+
+test("AC-40 the session hook puts a raised halt and its reason before the note, says when the halt could not be checked, and prints the note alone once the halt is lifted", () => {
+  const w = world();
+  const bin = binWith(w, ON_PATH, true);
+  result(run(w, w.root, ["halt", REASON]));
+  const halted = run(w, w.root, ["halted"]).stderr;
+  const ran = sessionStart(w, bin, w.root);
+  expect([ran.exitCode, ran.stderr]).toEqual([0, ""]);
+  expect(ran.stdout).toBe(`${HALT_HEADING}\n${halted}\n${NOTE}`);
+  expect(ran.stdout).toContain(REASON);
+  expect(sessionStart(w, olderCli(w), w.root)).toEqual({
+    exitCode: 0,
+    stdout: `${UNCHECKED_LINE}\n${NOTE}`,
+    stderr: "",
+  });
+  result(run(w, w.root, ["resume"]));
+  expect(sessionStart(w, bin, w.root)).toEqual(NOTED);
 });

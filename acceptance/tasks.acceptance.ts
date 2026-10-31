@@ -846,7 +846,7 @@ test("AC-33 a version-2 store is migrated by the first command that opens it, ke
   reopened.close();
 });
 
-test("AC-22 every command runs with git as the only program on PATH, a queued check under /bin/sh included, and doctor names the session hook's missing programs", () => {
+test("AC-22 every command runs with git as the only program on PATH, a queued check under /bin/sh included, and doctor names the plugin hooks' missing programs", () => {
   const w = world();
   const dir = repo(w);
   const file = brief(w.root);
@@ -909,6 +909,7 @@ test("AC-35 list leads with the counts in each group and prints by default, as t
     ok: true,
     result: {
       counts: { running: 1, review: 1, ready: 1, waiting: 1 },
+      halt: { state: "none" },
       tasks: [
         { name: "task-a", state: "running", brief: first, briefChanged: true },
         { name: "task-b", state: "review", brief: second, briefChanged: false },
@@ -917,7 +918,7 @@ test("AC-35 list leads with the counts in each group and prints by default, as t
       waiting: [{ name: "queued", repo: dir }],
     },
   });
-  expect(Object.keys(result(ran))).toEqual(["counts", "tasks", "ready", "waiting"]);
+  expect(Object.keys(result(ran))).toEqual(["counts", "halt", "tasks", "ready", "waiting"]);
   for (const header of [
     "tasks[2]{name,state,brief,briefChanged}:",
     "ready[1]{name,repo}:",

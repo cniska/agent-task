@@ -64,9 +64,10 @@ export function startedListingView({ tasks }: StartedListing, view: View) {
   return { counts: startedCount(tasks), tasks: tasks.map((task) => startedRow(task, view)) };
 }
 
-export function listingView({ tasks, ready, waiting }: Listing, view: View) {
+export function listingView({ tasks, halt, ready, waiting }: Listing, view: View) {
   return {
     counts: { ...startedCount(tasks), ready: ready.length, waiting: waiting.length },
+    halt,
     tasks: tasks.map((task) => startedRow(task, view)),
     ready: ready.map((task) => queuedRow(task, view)),
     waiting: waiting.map((task) => queuedRow(task, view)),
