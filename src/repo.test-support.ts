@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isTaskName, type TaskName } from "./store";
+import { isProjectId, isTaskName, type ProjectId, type TaskName } from "./store";
 
 const scratchDirs: string[] = [];
 
@@ -42,5 +42,10 @@ export function brief(dir: string, text = "# Brief\n"): string {
 
 export function named(raw: string): TaskName {
   if (!isTaskName(raw)) throw new Error(`${raw} is no task name`);
+  return raw;
+}
+
+export function projectNamed(raw: string): ProjectId {
+  if (!isProjectId(raw)) throw new Error(`${raw} is no project id`);
   return raw;
 }

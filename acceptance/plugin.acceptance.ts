@@ -157,7 +157,7 @@ test("AC-25 the session hook prints its note alone with no task started, over a 
   const withCli = binWith(w, ON_PATH, true);
   result(run(w, w.root, ["start", "task-a", "--repo", dir, "--brief", file]));
   const db = new Database(join(w.root, "data", "agent-task", "tasks.db"));
-  db.run("PRAGMA user_version = 4");
+  db.run("PRAGMA user_version = 99");
   db.close();
   expect(sessionStart(w, withCli, dir)).toEqual(NOTED);
   const fresh = world();

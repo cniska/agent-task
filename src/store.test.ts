@@ -2,17 +2,22 @@ import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { named, removeScratchDirs, scratchDir } from "./repo.test-support";
+import { named, projectNamed, removeScratchDirs, scratchDir } from "./repo.test-support";
 import {
+  allProjects,
   closeStore,
   insertQueued,
   insertRunning,
   openStore,
+  heldProject,
+  putProject,
   queuedTasks,
   readStore,
+  removeProject,
   removeTask,
   replaceQueued,
   reviewTask,
+  setProject,
   setWaiting,
   startedTasks,
   startQueued,
@@ -24,7 +29,7 @@ afterAll(removeScratchDirs);
 
 const WAIT = 0;
 
-const FIELDS = { goal: null, plan: null, priority: null, waits: null };
+const FIELDS = { project: null, goal: null, plan: null, priority: null, waits: null };
 
 const ADDED = { name: named("a"), repo: "/r", ...FIELDS, added: "2026-10-16T09:00:00.000Z" };
 
@@ -38,6 +43,14 @@ const STARTED = {
 };
 
 const RUNNING = { ...ADDED, ...STARTED };
+
+function unknownProject(id: string) {
+  return expect.objectContaining({
+    code: "unknown_project",
+    meta: { id },
+    resolve: `agent-task project add ${id} --name <text> --repo <path> --dir <dir> first; agent-task project list lists the projects`,
+  });
+}
 
 function freshStore() {
   return openStore(join(scratchDir(), "nested", "tasks.db"), WAIT);
@@ -95,6 +108,41 @@ INSERT INTO task_after VALUES ('queued-one', 'running-one');
 PRAGMA user_version = 2;
 `;
 
+const VERSION_THREE = `
+CREATE TABLE tasks (
+  name TEXT PRIMARY KEY,
+  state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'review')),
+  repo TEXT NOT NULL,
+  goal TEXT,
+  plan TEXT,
+  priority TEXT CHECK (priority IN ('urgent', 'high', 'medium', 'low')),
+  waits TEXT,
+  added_at TEXT NOT NULL,
+  brief TEXT,
+  brief_sha TEXT,
+  session TEXT,
+  started_at TEXT,
+  reviewed_at TEXT,
+  until TEXT CHECK (state = 'queued' OR until IS NULL),
+  CHECK ((state = 'queued') = (brief IS NULL)),
+  CHECK ((state = 'review') = (reviewed_at IS NOT NULL)),
+  CHECK ((brief IS NULL) = (brief_sha IS NULL)),
+  CHECK ((brief IS NULL) = (started_at IS NULL)),
+  CHECK (brief IS NOT NULL OR session IS NULL)
+) STRICT;
+CREATE TABLE task_after (
+  task TEXT NOT NULL REFERENCES tasks (name) ON DELETE CASCADE,
+  after TEXT NOT NULL,
+  PRIMARY KEY (task, after)
+) STRICT;
+INSERT INTO tasks VALUES ('queued-one', 'queued', '/r', 'ship it', NULL, NULL, NULL, '2026-10-15T08:00:00.000Z', NULL, NULL, NULL, NULL, NULL, 'exit 0');
+INSERT INTO tasks VALUES ('running-one', 'running', '/r', NULL, NULL, NULL, NULL, '2026-10-15T09:00:00.000Z', '/r/run.md', 'sha1', 's1', '2026-10-15T09:00:00.000Z', NULL, NULL);
+INSERT INTO task_after VALUES ('queued-one', 'running-one');
+PRAGMA user_version = 3;
+`;
+
+const PROJECT = { id: projectNamed("site"), name: "The site", repo: "/r", dir: "/r/briefs" };
+
 function storeOf(schema: string): string {
   const path = join(scratchDir(), "tasks.db");
   const db = new Database(path);
@@ -142,6 +190,7 @@ describe("the store", () => {
     insertQueued(store, { ...QUEUED, name: named("c") });
     const replaced = {
       name: named("b"),
+      project: null,
       repo: "/other",
       goal: "again",
       plan: null,
@@ -171,7 +220,7 @@ describe("the store", () => {
     insertQueued(store, { ...QUEUED, name: named("b") });
     const held = { ...queued, state: "queued" as const, after: [named("b")] };
     expect(taskByName(store, named("a"))).toEqual(held);
-    const start = { name: named("a"), repo: "/moved", ...STARTED };
+    const start = { name: named("a"), project: null, repo: "/moved", ...STARTED };
     expect(startQueued(store, start)).toEqual({ kind: "blocked", after: [named("b")] });
     expect(taskByName(store, named("a"))).toEqual(held);
     removeTask(store, named("b"));
@@ -344,7 +393,7 @@ describe("the store", () => {
         .query<{ n: number }, []>("SELECT count(*) AS n FROM sqlite_master WHERE name = 'task_commits'")
         .get()?.n,
     ).toBe(0);
-    expect(store.db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(3);
+    expect(store.db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(4);
     closeStore(store);
     expect(insertRunning(openStore(path, WAIT), { ...RUNNING, name: named("old-done") })).toMatchObject({
       state: "running",
@@ -357,6 +406,7 @@ describe("the store", () => {
     expect(queuedTasks(store)).toEqual([
       {
         name: named("queued-one"),
+        project: null,
         state: "queued",
         repo: "/r",
         goal: "ship it",
@@ -394,8 +444,90 @@ describe("the store", () => {
         reviewed: "2026-10-15T11:00:00.000Z",
       },
     ]);
-    expect(store.db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(3);
+    expect(store.db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(4);
     closeStore(store);
+  });
+
+  test("migrates a version-3 store, keeping every task, its check and after names, with no project", () => {
+    const store = openStore(storeOf(VERSION_THREE), WAIT);
+    expect(queuedTasks(store)).toEqual([
+      {
+        name: named("queued-one"),
+        ...FIELDS,
+        goal: "ship it",
+        state: "queued",
+        repo: "/r",
+        added: "2026-10-15T08:00:00.000Z",
+        after: [named("running-one")],
+        until: "exit 0",
+      },
+    ]);
+    expect(startedTasks(store)).toMatchObject([{ name: named("running-one"), project: null, session: "s1" }]);
+    expect(allProjects(store)).toEqual([]);
+    expect(store.db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(4);
+    closeStore(store);
+  });
+
+  test("puts a project, replacing its fields on an id it holds, reads and lists them by id", () => {
+    const store = freshStore();
+    expect(putProject(store, PROJECT)).toEqual(PROJECT);
+    const other = { id: projectNamed("app"), name: "The app", repo: "/a", dir: "/a/plans" };
+    putProject(store, other);
+    const renamed = { ...PROJECT, name: "The new site", repo: "/s", dir: "/s/briefs" };
+    expect(putProject(store, renamed)).toEqual(renamed);
+    expect(heldProject(store, PROJECT.id)).toEqual(renamed);
+    expect(() => heldProject(store, projectNamed("missing"))).toThrow(unknownProject("missing"));
+    expect(allProjects(store)).toEqual([other, renamed]);
+  });
+
+  test("maps a task in any state to a project, keeps it through start and stop, and refuses a project it does not hold", () => {
+    const store = freshStore();
+    putProject(store, PROJECT);
+    insertQueued(store, { ...QUEUED, project: PROJECT.id });
+    insertRunning(store, { ...RUNNING, name: named("r") });
+    expect(setProject(store, named("r"), PROJECT.id)).toMatchObject({ name: named("r"), project: "site" });
+    expect(setProject(store, named("missing"), PROJECT.id)).toBeNull();
+    expect(() => setProject(store, named("r"), projectNamed("nowhere"))).toThrow(unknownProject("nowhere"));
+    const start = { name: named("a"), project: null, repo: "/r", ...STARTED };
+    expect(startQueued(store, start)).toMatchObject({ kind: "started", task: { project: "site" } });
+    expect(stopTask(store, named("a"))).toMatchObject({ project: "site" });
+    const other = { id: projectNamed("app"), name: "The app", repo: "/a", dir: "/a/plans" };
+    putProject(store, other);
+    expect(startQueued(store, { ...start, project: other.id })).toMatchObject({
+      kind: "started",
+      task: { project: "app" },
+    });
+  });
+
+  test("removes a project no task belongs to, and names the tasks that still belong to one", () => {
+    const store = freshStore();
+    putProject(store, PROJECT);
+    insertQueued(store, { ...QUEUED, project: PROJECT.id });
+    insertRunning(store, { ...RUNNING, name: named("b"), project: PROJECT.id });
+    expect(removeProject(store, PROJECT.id)).toEqual({ kind: "in_use", tasks: [named("a"), named("b")] });
+    expect(heldProject(store, PROJECT.id)).toEqual(PROJECT);
+    removeTask(store, named("a"));
+    removeTask(store, named("b"));
+    expect(removeProject(store, PROJECT.id)).toEqual({ kind: "removed", project: PROJECT });
+    expect(() => removeProject(store, PROJECT.id)).toThrow(unknownProject("site"));
+  });
+
+  test("refuses inside each write a project the store does not hold, writing nothing", () => {
+    const store = freshStore();
+    const nowhere = projectNamed("nowhere");
+    insertQueued(store, QUEUED);
+    expect(() => insertQueued(store, { ...QUEUED, name: named("q"), project: nowhere })).toThrow(
+      unknownProject("nowhere"),
+    );
+    expect(() => replaceQueued(store, { ...QUEUED, project: nowhere })).toThrow(unknownProject("nowhere"));
+    expect(() => insertRunning(store, { ...RUNNING, name: named("r"), project: nowhere })).toThrow(
+      unknownProject("nowhere"),
+    );
+    expect(() => startQueued(store, { name: named("a"), project: nowhere, repo: "/r", ...STARTED })).toThrow(
+      unknownProject("nowhere"),
+    );
+    expect(queuedTasks(store)).toMatchObject([{ name: named("a"), project: null }]);
+    expect(startedTasks(store)).toEqual([]);
   });
 
   test("reads a version-1 store as migratable without changing it, and a current or absent one as itself", () => {
@@ -414,11 +546,11 @@ describe("the store", () => {
   test("refuses a store of another version and a file that is no store, leaving each as it was", () => {
     const newer = join(scratchDir(), "tasks.db");
     const db = new Database(newer);
-    db.run("PRAGMA user_version = 4");
+    db.run("PRAGMA user_version = 5");
     db.close();
     const bytes = readFileSync(newer);
     expect(() => openStore(newer, WAIT)).toThrow(
-      expect.objectContaining({ code: "store_version", meta: { path: newer, found: 4, expected: 3 } }),
+      expect.objectContaining({ code: "store_version", meta: { path: newer, found: 5, expected: 4 } }),
     );
     expect(() => readStore(newer, WAIT)).toThrow(expect.objectContaining({ code: "store_version" }));
     expect(readFileSync(newer).equals(bytes)).toBe(true);

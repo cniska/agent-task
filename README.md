@@ -9,6 +9,7 @@ agent-task records each coding-agent task on this machine, with the repository i
 - `agent-task add <name>` queues a task with its goal, plan, priority, what it waits for and the check that says its wait is met, and `list` prints the queue in the order to start it.
 - `agent-task start <name>` runs a task from a brief, recording the brief's path and git blob sha and the session that started it; `review` marks it handed back for review, and `list` flags a brief that changed since.
 - `agent-task done <name>` removes a task however its work ended; whether the work landed is git's to show.
+- `agent-task project add <id>` adds a project, which a task can belong to, and `list --project <id>` shows that project's tasks alone.
 - `agent-task halt "<reason>"` stops all agent work on this machine until the owner runs `agent-task resume`, and the plugin enforces it in every session.
 - The `cniska-task` Claude Code plugin tells every session that queued and running work lives in agent-task, and puts the running and in-review tasks in its context, each with whether its brief changed.
 
@@ -59,12 +60,14 @@ agent-task is the record of the work on this machine, not an issue tracker such 
 | Command | Does |
 | --- | --- |
 | `agent-task add <name> --repo <path> --goal <text> [...]` | Queue a task, or replace a queued one |
-| `agent-task start <name> --repo <path> --brief <file> [--session <id>]` | Run a task, new or queued, from its brief |
+| `agent-task start <name> --repo <path> --brief <file> [...]` | Run a task, new or queued, from its brief |
 | `agent-task wait <name> [--after <name>]... [--waits <text>] [--until <command>]` | Replace what a task waits for |
+| `agent-task map <name> --project <id>` | Make a task belong to a project |
 | `agent-task review <name>` | Record that a running task was handed back for review |
-| `agent-task list [--started [--brief-under <dir>]] [--full]` | List the running and in-review tasks, then the queue, running each queued task's check; `--started` lists the started tasks alone, `--full` every field |
+| `agent-task list [--started [--brief-under <dir>]] [--project <id>] [--full]` | List the running and in-review tasks, then the queue, running each queued task's check; `--started` lists the started tasks alone, `--project` one project's tasks, `--full` every field |
 | `agent-task stop <name>` | Take a running or in-review task back to queued |
 | `agent-task done <name>` | Remove a task in any state |
+| `agent-task project add\|list\|remove` | Add or replace a project, list the projects, or remove one no task belongs to |
 | `agent-task halt <reason>` | Halt all agent work on this machine |
 | `agent-task resume` | Lift the halt |
 | `agent-task halted` | Say whether a halt is raised |

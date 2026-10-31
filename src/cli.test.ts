@@ -34,10 +34,12 @@ describe("the cli", () => {
           "add",
           "start",
           "wait",
+          "map",
           "review",
           "list",
           "stop",
           "done",
+          "project",
           "halt",
           "resume",
           "halted",
@@ -103,9 +105,11 @@ describe("the cli", () => {
         message: "frobnicate is not an agent-task command; agent-task --help lists them",
         meta: {
           name: "frobnicate",
-          usage: "agent-task add|start|wait|review|list|stop|done|halt|resume|halted|doctor|--help|--version",
+          usage:
+            "agent-task add|start|wait|map|review|list|stop|done|project|halt|resume|halted|doctor|--help|--version",
         },
-        resolve: "agent-task add|start|wait|review|list|stop|done|halt|resume|halted|doctor|--help|--version",
+        resolve:
+          "agent-task add|start|wait|map|review|list|stop|done|project|halt|resume|halted|doctor|--help|--version",
       },
     });
   });

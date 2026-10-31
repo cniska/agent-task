@@ -27,6 +27,7 @@ function storeWith(dir: string, briefPath: string | null, plan: string | null = 
   const store = openStore(path, 0);
   const queued = {
     name: named("task-a"),
+    project: null,
     repo: dir,
     goal: null,
     plan,
@@ -88,8 +89,8 @@ describe("doctor", () => {
     expect(store.fix).toBe(`stop and hand this error to the owner: ${directory} must be an agent-task store`);
   });
 
-  test("warns a version-1 or version-2 store without changing it, naming list as the migration", () => {
-    for (const version of [1, 2]) {
+  test("warns a version-1, version-2 or version-3 store without changing it, naming list as the migration", () => {
+    for (const version of [1, 2, 3]) {
       const path = join(scratchDir(), "tasks.db");
       const db = new Database(path);
       db.run(`PRAGMA user_version = ${version}`);
@@ -98,7 +99,7 @@ describe("doctor", () => {
       expect(checkOf(path, [GIT_DIR], "store")).toEqual({
         name: "store",
         state: "warn",
-        detail: `${path} is a version ${version} store; this agent-task reads version 3`,
+        detail: `${path} is a version ${version} store; this agent-task reads version 4`,
         fix: "run agent-task list, which migrates it, then run agent-task doctor again",
       });
       expect(readFileSync(path).equals(bytes)).toBe(true);
@@ -150,7 +151,7 @@ describe("doctor", () => {
       name: "task-a plan",
       state: "warn",
       detail: `${missing} is not a readable file`,
-      fix: `put the plan back at ${missing}, or agent-task add task-a --repo <path> --goal <text> [--plan <file>] [--priority urgent|high|medium|low] [--after <name>]... [--waits <text>] [--until <command>] again with another --plan or none`,
+      fix: `put the plan back at ${missing}, or agent-task add task-a --repo <path> --goal <text> [--project <id>] [--plan <file>] [--priority urgent|high|medium|low] [--after <name>]... [--waits <text>] [--until <command>] again with another --plan or none`,
     });
   });
 

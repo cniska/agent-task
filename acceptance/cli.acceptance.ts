@@ -39,10 +39,12 @@ test("AC-19 no command prints what list prints, --help lists the commands and th
         "add",
         "start",
         "wait",
+        "map",
         "review",
         "list",
         "stop",
         "done",
+        "project",
         "halt",
         "resume",
         "halted",
@@ -84,7 +86,7 @@ test("AC-20 an unknown command and a misused one are usage errors on stderr, exi
     error: {
       kind: "usage",
       code: "bad_arguments",
-      resolve: "agent-task start <name> --repo <path> --brief <file> [--session <id>]",
+      resolve: "agent-task start <name> --repo <path> --brief <file> [--project <id>] [--session <id>]",
     },
   });
   const refused = run(w, w.root, ["stop", "nobody"]);

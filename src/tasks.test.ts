@@ -2,7 +2,8 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { liftHalt, raiseHalt } from "./halt";
-import { brief, git, named, removeScratchDirs, repo, scratchDir } from "./repo.test-support";
+import { addProject } from "./projects";
+import { brief, git, named, projectNamed, removeScratchDirs, repo, scratchDir } from "./repo.test-support";
 import { insertQueued, openStore, taskByName } from "./store";
 import {
   type AddRequest,
@@ -12,6 +13,7 @@ import {
   list,
   listStarted,
   listStartedUnder,
+  map,
   review,
   start,
   stop,
@@ -24,7 +26,7 @@ const STARTED = new Date("2026-10-16T10:00:00.000Z");
 
 const LATER = new Date("2026-10-16T11:00:00.000Z");
 
-const UNQUEUED = { goal: null, plan: null, priority: null, waits: null };
+const UNQUEUED = { project: null, goal: null, plan: null, priority: null, waits: null };
 
 const EMPTY = { tasks: [], halt: { state: "none" } as const, ready: [], waiting: [] };
 
@@ -49,12 +51,13 @@ function later(ctx: Context): Context {
 
 function started(ctx: Context, name = "task-a", session: string | null = null) {
   const dir = repo();
-  return { dir, task: start(ctx, { name, repo: dir, brief: brief(dir), session }) };
+  return { dir, task: start(ctx, { project: null, name, repo: dir, brief: brief(dir), session }) };
 }
 
 function request(name: string, dir: string, fields: Partial<AddRequest> = {}): AddRequest {
   return {
     name,
+    project: null,
     repo: dir,
     goal: `do ${name}`,
     plan: null,
@@ -80,6 +83,7 @@ describe("add", () => {
     added(ctx, "task-b");
     expect(
       add(ctx, {
+        project: null,
         name: "task-a",
         repo: join(dir, "sub"),
         goal: "ship it",
@@ -91,6 +95,7 @@ describe("add", () => {
       }),
     ).toEqual({
       name: named("task-a"),
+      project: null,
       state: "queued",
       repo: dir,
       goal: "ship it",
@@ -109,6 +114,7 @@ describe("add", () => {
     const other = repo();
     expect(add(later(ctx), request("task-a", other, { goal: "changed", after: [] }))).toEqual({
       name: named("task-a"),
+      project: null,
       state: "queued",
       repo: other,
       goal: "changed",
@@ -143,7 +149,7 @@ describe("add", () => {
       expect.objectContaining({
         code: "unknown_task",
         meta: { name: "task-z", act: "add" },
-        resolve: "agent-task start task-z --repo <path> --brief <file> [--session <id>]",
+        resolve: "agent-task start task-z --repo <path> --brief <file> [--project <id>] [--session <id>]",
       }),
     );
     expect(() => add(ctx, request("task-a", scratchDir()))).toThrow(
@@ -162,7 +168,9 @@ describe("start", () => {
     const dir = repo();
     mkdirSync(join(dir, "sub"));
     const path = brief(dir, "hello\n");
-    expect(start(ctx, { name: "task-a", repo: join(dir, "sub"), brief: path, session: "s1" })).toEqual({
+    expect(
+      start(ctx, { project: null, name: "task-a", repo: join(dir, "sub"), brief: path, session: "s1" }),
+    ).toEqual({
       name: named("task-a"),
       state: "running",
       repo: dir,
@@ -180,7 +188,9 @@ describe("start", () => {
     const dir = repo();
     const linked = join(scratchDir(), "linked");
     git(dir, ["worktree", "add", "-q", "-b", "topic", linked]);
-    expect(start(ctx, { name: "task-a", repo: linked, brief: brief(dir), session: null })).toMatchObject({
+    expect(
+      start(ctx, { project: null, name: "task-a", repo: linked, brief: brief(dir), session: null }),
+    ).toMatchObject({
       repo: dir,
       session: null,
     });
@@ -193,6 +203,7 @@ describe("start", () => {
     done(ctx, "task-b");
     insertQueued(ctx.store, {
       name: named("task-a"),
+      project: null,
       repo: "/elsewhere",
       goal: "ship it",
       plan: null,
@@ -202,7 +213,13 @@ describe("start", () => {
       after: [named("task-b")],
       until: "exit 0",
     });
-    const running = start(later(ctx), { name: "task-a", repo: dir, brief: brief(dir), session: "s2" });
+    const running = start(later(ctx), {
+      project: null,
+      name: "task-a",
+      repo: dir,
+      brief: brief(dir),
+      session: "s2",
+    });
     expect(running).toMatchObject({
       state: "running",
       repo: dir,
@@ -214,7 +231,7 @@ describe("start", () => {
       session: "s2",
     });
     expect(Object.keys(running)).not.toContain("until");
-    expect(list(ctx).waiting).toEqual([]);
+    expect(list(ctx, null).waiting).toEqual([]);
     expect(stop(ctx, "task-a")).toMatchObject({ state: "queued", until: null });
   });
 
@@ -223,7 +240,9 @@ describe("start", () => {
     added(ctx, "task-b");
     started(ctx, "task-c");
     const { dir, task } = added(ctx, "task-a", { after: ["task-b", "task-c"] });
-    expect(() => start(ctx, { name: "task-a", repo: dir, brief: brief(dir), session: null })).toThrow(
+    expect(() =>
+      start(ctx, { project: null, name: "task-a", repo: dir, brief: brief(dir), session: null }),
+    ).toThrow(
       expect.objectContaining({
         code: "blocked",
         meta: { name: "task-a", after: ["task-b", "task-c"] },
@@ -234,7 +253,9 @@ describe("start", () => {
     expect(taskByName(ctx.store, named("task-a"))).toEqual(task);
     done(ctx, "task-b");
     done(ctx, "task-c");
-    expect(start(ctx, { name: "task-a", repo: dir, brief: brief(dir), session: null })).toMatchObject({
+    expect(
+      start(ctx, { project: null, name: "task-a", repo: dir, brief: brief(dir), session: null }),
+    ).toMatchObject({
       state: "running",
     });
   });
@@ -243,23 +264,23 @@ describe("start", () => {
     const ctx = context();
     const dir = repo();
     for (const name of ["", "Task", "task_a", "-a", "a-", "a--b", "a b", "a/b", "ä"])
-      expect(() => start(ctx, { name, repo: dir, brief: brief(dir), session: null })).toThrow(
+      expect(() => start(ctx, { project: null, name, repo: dir, brief: brief(dir), session: null })).toThrow(
         expect.objectContaining({ code: "invalid_name", meta: { name } }),
       );
-    expect(list(ctx)).toEqual(EMPTY);
+    expect(list(ctx, null)).toEqual(EMPTY);
   });
 
   test("refuses a repo that is no checkout and a brief that is no file, recording nothing", () => {
     const ctx = context();
     const dir = repo();
     const outside = scratchDir();
-    expect(() => start(ctx, { name: "a", repo: outside, brief: brief(dir), session: null })).toThrow(
-      expect.objectContaining({ code: "not_a_checkout" }),
-    );
+    expect(() =>
+      start(ctx, { project: null, name: "a", repo: outside, brief: brief(dir), session: null }),
+    ).toThrow(expect.objectContaining({ code: "not_a_checkout" }));
     const unreadable = brief(scratchDir());
     chmodSync(unreadable, 0o000);
     for (const path of [join(dir, "missing.md"), dir, unreadable])
-      expect(() => start(ctx, { name: "a", repo: dir, brief: path, session: null })).toThrow(
+      expect(() => start(ctx, { project: null, name: "a", repo: dir, brief: path, session: null })).toThrow(
         expect.objectContaining({ code: "brief_unreadable", meta: { brief: path } }),
       );
     expect(taskByName(ctx.store, named("a"))).toBeNull();
@@ -269,7 +290,13 @@ describe("start", () => {
     const ctx = context();
     const { dir, task } = started(ctx, "running-one");
     expect(() =>
-      start(later(ctx), { name: "running-one", repo: dir, brief: brief(dir, "other\n"), session: null }),
+      start(later(ctx), {
+        project: null,
+        name: "running-one",
+        repo: dir,
+        brief: brief(dir, "other\n"),
+        session: null,
+      }),
     ).toThrow(
       expect.objectContaining({
         code: "name_taken",
@@ -278,13 +305,14 @@ describe("start", () => {
           state: "running",
           admits: [
             "agent-task wait running-one [--after <name>]... [--waits <text>] [--until <command>]",
+            "agent-task map running-one --project <id>",
             "agent-task review running-one",
             "agent-task stop running-one",
             "agent-task done running-one",
           ],
         },
         resolve:
-          "running-one is running, which admits: agent-task wait running-one [--after <name>]... [--waits <text>] [--until <command>]; agent-task review running-one; agent-task stop running-one; agent-task done running-one",
+          "running-one is running, which admits: agent-task wait running-one [--after <name>]... [--waits <text>] [--until <command>]; agent-task map running-one --project <id>; agent-task review running-one; agent-task stop running-one; agent-task done running-one",
       }),
     );
     expect(taskByName(ctx.store, named("running-one"))).toEqual(task);
@@ -352,6 +380,7 @@ describe("review", () => {
           state: "review",
           admits: [
             "agent-task wait task-a [--after <name>]... [--waits <text>] [--until <command>]",
+            "agent-task map task-a --project <id>",
             "agent-task stop task-a",
             "agent-task done task-a",
           ],
@@ -372,7 +401,9 @@ describe("review", () => {
     const ctx = context();
     const { dir, task } = started(ctx, "task-a");
     review(ctx, "task-a");
-    expect(() => start(ctx, { name: "task-a", repo: dir, brief: task.brief, session: null })).toThrow(
+    expect(() =>
+      start(ctx, { project: null, name: "task-a", repo: dir, brief: task.brief, session: null }),
+    ).toThrow(
       expect.objectContaining({ code: "name_taken", meta: expect.objectContaining({ state: "review" }) }),
     );
     expect(wait(ctx, { name: "task-a", after: [], waits: "the owner", until: null })).toMatchObject({
@@ -408,7 +439,7 @@ describe("list", () => {
     chmodSync(e.task.brief, 0o000);
     const f = started(later(ctx), "task-f");
     chmodSync(f.task.brief, 0o000);
-    const listing = list(ctx);
+    const listing = list(ctx, null);
     expect(listing.tasks.map(({ name, briefChanged }) => [name, briefChanged])).toEqual([
       [named("task-a"), false],
       [named("task-b"), true],
@@ -440,7 +471,7 @@ describe("list", () => {
     added(ctx, "met-after", { after: ["unmet"], until: "exit 0" });
     const inRepo = added(ctx, "in-repo", { until: "test -f released" });
     writeFileSync(join(inRepo.dir, "released"), "");
-    const listing = list(ctx);
+    const listing = list(ctx, null);
     expect(listing.ready).toEqual([
       { ...inRepo.task, untilState: "met" },
       { ...met.task, untilState: "met" },
@@ -456,7 +487,7 @@ describe("list", () => {
     const ctx = { ...context(), untilTimeoutMs: SHORT_CHECK_TIMEOUT_MS };
     added(ctx, "slow", { until: "sleep 60" });
     const startedAt = Date.now();
-    expect(list(ctx).waiting.map(({ name, untilState }) => [name, untilState])).toEqual([
+    expect(list(ctx, null).waiting.map(({ name, untilState }) => [name, untilState])).toEqual([
       [named("slow"), "timed_out"],
     ]);
     expect(Date.now() - startedAt).toBeLessThan(CHECK_TIMEOUT_MS);
@@ -467,9 +498,9 @@ describe("list", () => {
     const a = started(ctx, "task-a");
     const queued = added(ctx, "marking", { until: ": > marker" });
     const marker = join(queued.dir, "marker");
-    expect(listStarted(ctx)).toEqual({ tasks: [{ ...a.task, briefChanged: false }] });
+    expect(listStarted(ctx, null)).toEqual({ tasks: [{ ...a.task, briefChanged: false }] });
     expect(existsSync(marker)).toBe(false);
-    list(ctx);
+    list(ctx, null);
     expect(existsSync(marker)).toBe(true);
   });
 
@@ -478,16 +509,16 @@ describe("list", () => {
     const dir = repo();
     const briefs = join(dir, "briefs");
     mkdirSync(briefs);
-    start(ctx, { name: "task-a", repo: dir, brief: brief(briefs), session: null });
+    start(ctx, { project: null, name: "task-a", repo: dir, brief: brief(briefs), session: null });
     started(ctx, "task-b");
     const linked = join(scratchDir(), "linked");
     symlinkSync(dir, linked);
     for (const under of [briefs, dir, linked, "/"])
-      expect(listStartedUnder(ctx, under)).toEqual(listStarted(ctx));
+      expect(listStartedUnder(ctx, under, null)).toEqual(listStarted(ctx, null));
     const prefix = join(dir, "brief");
     mkdirSync(prefix);
     for (const under of [prefix, join(dir, "missing"), join(briefs, "brief.md"), scratchDir()])
-      expect(() => listStartedUnder(ctx, under)).toThrow(
+      expect(() => listStartedUnder(ctx, under, null)).toThrow(
         expect.objectContaining({ code: "no_brief_under", meta: { dir: under } }),
       );
   });
@@ -501,7 +532,7 @@ describe("list", () => {
     added(later(ctx), "early-high", { priority: "high" });
     added(ctx, "waits-word", { priority: "urgent", waits: "a word" });
     added(ctx, "after-low", { after: ["low"] });
-    const listing = list(ctx);
+    const listing = list(ctx, null);
     expect(listing.ready.map(({ name }) => name)).toEqual(
       ["urgent", "early-high", "low", "none-a", "none-b"].map(named),
     );
@@ -533,9 +564,10 @@ describe("stop", () => {
           act: "stop",
           state: "queued",
           admits: [
-            "agent-task add task-a --repo <path> --goal <text> [--plan <file>] [--priority urgent|high|medium|low] [--after <name>]... [--waits <text>] [--until <command>]",
+            "agent-task add task-a --repo <path> --goal <text> [--project <id>] [--plan <file>] [--priority urgent|high|medium|low] [--after <name>]... [--waits <text>] [--until <command>]",
             "agent-task wait task-a [--after <name>]... [--waits <text>] [--until <command>]",
-            "agent-task start task-a --repo <path> --brief <file> [--session <id>]",
+            "agent-task map task-a --project <id>",
+            "agent-task start task-a --repo <path> --brief <file> [--project <id>] [--session <id>]",
             "agent-task done task-a",
           ],
         },
@@ -546,7 +578,7 @@ describe("stop", () => {
       expect.objectContaining({
         code: "unknown_task",
         meta: { name: "task-b", act: "stop" },
-        resolve: "agent-task start task-b --repo <path> --brief <file> [--session <id>]",
+        resolve: "agent-task start task-b --repo <path> --brief <file> [--project <id>] [--session <id>]",
       }),
     );
     expect(taskByName(ctx.store, named("task-a"))).toMatchObject({ state: "queued" });
@@ -563,15 +595,15 @@ describe("done", () => {
     expect(() => done(ctx, "task-a")).toThrow(
       expect.objectContaining({ code: "unknown_task", meta: { name: "task-a", act: "done" } }),
     );
-    expect(list(ctx)).toEqual(EMPTY);
+    expect(list(ctx, null)).toEqual(EMPTY);
     const again = added(ctx, "task-a", { after: [] });
     added(ctx, "task-b", { after: ["task-a"] });
     expect(done(ctx, "task-a")).toEqual(again.task);
     expect(taskByName(ctx.store, named("task-a"))).toBeNull();
-    expect(list(ctx).ready.map(({ name, after }) => [name, after])).toEqual([[named("task-b"), []]]);
-    expect(list(ctx).waiting).toEqual([]);
+    expect(list(ctx, null).ready.map(({ name, after }) => [name, after])).toEqual([[named("task-b"), []]]);
+    expect(list(ctx, null).waiting).toEqual([]);
     add(ctx, request("task-a", again.dir));
-    expect(list(ctx).waiting.map(({ name, after }) => [name, after])).toEqual([
+    expect(list(ctx, null).waiting.map(({ name, after }) => [name, after])).toEqual([
       [named("task-b"), [named("task-a")]],
     ]);
   });
@@ -585,26 +617,121 @@ describe("done", () => {
   });
 });
 
+function listedNames({ tasks, ready, waiting }: ReturnType<typeof list>) {
+  return {
+    tasks: tasks.map(({ name }) => name),
+    ready: ready.map(({ name }) => name),
+    waiting: waiting.map(({ name }) => name),
+  };
+}
+
+function addedProject(ctx: Context, id: string) {
+  const dir = repo();
+  return addProject(ctx, { id, name: `The ${id}`, repo: dir, dir });
+}
+
+describe("projects", () => {
+  test("add, start and map record a task's project, and each refuses one the store does not hold, recording nothing", () => {
+    const ctx = context();
+    addedProject(ctx, "site");
+    addedProject(ctx, "app");
+    expect(added(ctx, "task-a", { project: "site" }).task).toMatchObject({ project: "site" });
+    const dir = repo();
+    const running = start(ctx, {
+      name: "task-b",
+      project: "app",
+      repo: dir,
+      brief: brief(dir),
+      session: null,
+    });
+    expect(running).toMatchObject({ project: "app" });
+    expect(
+      start(later(ctx), { name: "task-a", project: null, repo: dir, brief: brief(dir), session: null }),
+    ).toMatchObject({
+      project: "site",
+    });
+    expect(map(ctx, "task-a", "app")).toMatchObject({ name: "task-a", state: "running", project: "app" });
+    const unknown = expect.objectContaining({ code: "unknown_project", meta: { id: "nowhere" } });
+    expect(() => added(ctx, "task-c", { project: "nowhere" })).toThrow(unknown);
+    expect(() =>
+      start(ctx, { name: "task-c", project: "nowhere", repo: dir, brief: brief(dir), session: null }),
+    ).toThrow(unknown);
+    expect(() => map(ctx, "task-b", "nowhere")).toThrow(unknown);
+    expect(() => map(ctx, "task-z", "site")).toThrow(
+      expect.objectContaining({ code: "unknown_task", meta: { name: "task-z", act: "map" } }),
+    );
+    expect(taskByName(ctx.store, named("task-c"))).toBeNull();
+    expect(taskByName(ctx.store, named("task-b"))).toMatchObject({ project: "app" });
+  });
+
+  test("add of a queued name without a project unmaps it, as it replaces every field", () => {
+    const ctx = context();
+    addedProject(ctx, "site");
+    const { dir } = added(ctx, "task-a", { project: "site" });
+    expect(add(ctx, request("task-a", dir))).toMatchObject({ project: null });
+  });
+
+  test("list and list --started filtered to a project show only that project's tasks, and refuse one the store does not hold", () => {
+    const ctx = context();
+    addedProject(ctx, "site");
+    addedProject(ctx, "app");
+    const { dir } = started(ctx, "run-site");
+    map(ctx, "run-site", "site");
+    started(ctx, "run-app");
+    map(ctx, "run-app", "app");
+    added(ctx, "ready-site", { project: "site" });
+    added(ctx, "waiting-site", { project: "site", waits: "the owner" });
+    added(ctx, "ready-app", { project: "app" });
+    added(ctx, "ready-none");
+    expect(listedNames(list(ctx, "site"))).toEqual({
+      tasks: [named("run-site")],
+      ready: [named("ready-site")],
+      waiting: [named("waiting-site")],
+    });
+    expect(listedNames(list(ctx, "app"))).toEqual({
+      tasks: [named("run-app")],
+      ready: [named("ready-app")],
+      waiting: [],
+    });
+    expect(list(ctx, null).ready.map(({ name, project }) => [name, project])).toEqual([
+      [named("ready-app"), projectNamed("app")],
+      [named("ready-none"), null],
+      [named("ready-site"), projectNamed("site")],
+    ]);
+    expect(listStarted(ctx, "app").tasks.map(({ name }) => name)).toEqual([named("run-app")]);
+    expect(listStartedUnder(ctx, dir, "site").tasks.map(({ name }) => name)).toEqual([named("run-site")]);
+    expect(() => list(ctx, "nowhere")).toThrow(expect.objectContaining({ code: "unknown_project" }));
+    expect(() => list(ctx, "Nowhere")).toThrow(
+      expect.objectContaining({ code: "invalid_project", meta: { id: "Nowhere" } }),
+    );
+    expect(() => listStarted(ctx, "nowhere")).toThrow(expect.objectContaining({ code: "unknown_project" }));
+  });
+});
+
 describe("a halt", () => {
-  test("refuses add, start and wait while raised, recording nothing, lists the halt, and admits them again once lifted", () => {
+  test("refuses add, start, wait and map while raised, recording nothing, lists the halt, and admits them again once lifted", () => {
     const ctx = context();
     const queued = added(ctx, "task-a");
+    addedProject(ctx, "site");
     const dir = repo();
     const halt = raiseHalt(ctx.haltPath, "a flaw in the workflow", LATER);
-    const before = list(ctx);
+    const before = list(ctx, null);
     expect(before.halt).toEqual(halt);
     const halted = expect.objectContaining({ code: "halted", meta: halt });
     expect(() => add(ctx, request("task-b", dir))).toThrow(halted);
-    expect(() => start(ctx, { name: "task-c", repo: dir, brief: brief(dir), session: null })).toThrow(halted);
-    expect(() => start(ctx, { name: "task-a", repo: queued.dir, brief: brief(dir), session: null })).toThrow(
-      halted,
-    );
+    expect(() =>
+      start(ctx, { project: null, name: "task-c", repo: dir, brief: brief(dir), session: null }),
+    ).toThrow(halted);
+    expect(() =>
+      start(ctx, { project: null, name: "task-a", repo: queued.dir, brief: brief(dir), session: null }),
+    ).toThrow(halted);
     expect(() => wait(ctx, { name: "task-a", after: [], waits: null, until: "exit 0" })).toThrow(halted);
-    expect(list(ctx)).toEqual(before);
+    expect(() => map(ctx, "task-a", "site")).toThrow(halted);
+    expect(list(ctx, null)).toEqual(before);
     liftHalt(ctx.haltPath);
-    expect(list(ctx).halt).toEqual({ state: "none" });
-    expect(start(ctx, { name: "task-a", repo: queued.dir, brief: brief(dir), session: null }).state).toBe(
-      "running",
-    );
+    expect(list(ctx, null).halt).toEqual({ state: "none" });
+    expect(
+      start(ctx, { project: null, name: "task-a", repo: queued.dir, brief: brief(dir), session: null }).state,
+    ).toBe("running");
   });
 });

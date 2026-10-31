@@ -96,7 +96,7 @@ function add(w: World, name: string, at: string, goal: string, ...flags: string[
   return run(w, w.root, ["add", name, "--repo", at, "--goal", goal, ...flags]);
 }
 
-const UNQUEUED = { goal: null, plan: null, priority: null, waits: null };
+const UNQUEUED = { project: null, goal: null, plan: null, priority: null, waits: null };
 
 function start(w: World, name: string, at: string, briefPath: string, cwd = w.root): Ran {
   return run(w, cwd, ["start", name, "--repo", at, "--brief", briefPath]);
@@ -223,6 +223,7 @@ test("AC-6 start refuses a running name, naming what it admits, starts a stopped
       state: "running",
       admits: [
         "agent-task wait running-one [--after <name>]... [--waits <text>] [--until <command>]",
+        "agent-task map running-one --project <id>",
         "agent-task review running-one",
         "agent-task stop running-one",
         "agent-task done running-one",
@@ -326,9 +327,10 @@ test("AC-9 stop takes a running task back to queued and done removes a task in e
       act: "stop",
       state: "queued",
       admits: [
-        "agent-task add task-a --repo <path> --goal <text> [--plan <file>] [--priority urgent|high|medium|low] [--after <name>]... [--waits <text>] [--until <command>]",
+        "agent-task add task-a --repo <path> --goal <text> [--project <id>] [--plan <file>] [--priority urgent|high|medium|low] [--after <name>]... [--waits <text>] [--until <command>]",
         "agent-task wait task-a [--after <name>]... [--waits <text>] [--until <command>]",
-        "agent-task start task-a --repo <path> --brief <file> [--session <id>]",
+        "agent-task map task-a --project <id>",
+        "agent-task start task-a --repo <path> --brief <file> [--project <id>] [--session <id>]",
         "agent-task done task-a",
       ],
     },
@@ -343,7 +345,9 @@ test("AC-9 stop takes a running task back to queued and done removes a task in e
   ] as const) {
     const unknown = refusal(run(w, w.root, [act, name]));
     expect(unknown).toMatchObject({ code: "unknown_task", meta: { name, act } });
-    expect(unknown.resolve).toBe(`agent-task start ${name} --repo <path> --brief <file> [--session <id>]`);
+    expect(unknown.resolve).toBe(
+      `agent-task start ${name} --repo <path> --brief <file> [--project <id>] [--session <id>]`,
+    );
   }
   for (const act of ["stop", "done"])
     expect(refusal(run(w, w.root, [act, "Task_A"]))).toMatchObject({
@@ -414,7 +418,7 @@ test("AC-10 add queues a task with its goal, plan, priority, after, waits and ch
   expect(refusal(add(w, "task-c", dir, "g", "--after", "task-z"))).toMatchObject({
     code: "unknown_task",
     meta: { name: "task-z", act: "add" },
-    resolve: "agent-task start task-z --repo <path> --brief <file> [--session <id>]",
+    resolve: "agent-task start task-z --repo <path> --brief <file> [--project <id>] [--session <id>]",
   });
   const outside = join(w.root, "outside");
   mkdirSync(outside);
@@ -439,6 +443,7 @@ test("AC-11 add on a queued name replaces its record keeping the added time, and
   const replaced = result(add(w, "task-a", other, "second"));
   expect(replaced).toEqual({
     name: "task-a",
+    project: null,
     state: "queued",
     repo: other,
     goal: "second",
@@ -605,6 +610,7 @@ test("AC-15 review takes a running task to review with the time, keeps it listed
       state: "review",
       admits: [
         "agent-task wait task-a [--after <name>]... [--waits <text>] [--until <command>]",
+        "agent-task map task-a --project <id>",
         "agent-task stop task-a",
         "agent-task done task-a",
       ],
@@ -645,11 +651,11 @@ test("AC-15 review takes a running task to review with the time, keeps it listed
 
 test("AC-16 a store of a schema version this agent-task cannot read is refused and left as it is", () => {
   const w = world();
-  const path = storeOfVersion(w, 4);
+  const path = storeOfVersion(w, 99);
   const before = readFileSync(path);
   expect(refusal(run(w, w.root, ["list", "--full"]))).toMatchObject({
     code: "store_version",
-    meta: { found: 4 },
+    meta: { found: 99 },
   });
   expect(readFileSync(path).equals(before)).toBe(true);
 });
@@ -703,12 +709,12 @@ test("AC-17 a version-1 store is migrated by the first command that opens it, ke
     waiting: [],
   });
   const reopened = new Database(path, { readonly: true });
-  expect(reopened.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(3);
+  expect(reopened.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(4);
   expect(
     reopened
       .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
       .all(),
-  ).toEqual([{ name: "task_after" }, { name: "tasks" }]);
+  ).toEqual([{ name: "projects" }, { name: "task_after" }, { name: "tasks" }]);
   expect(result(run(w, w.root, ["review", "old-a"]))).toMatchObject({ state: "review" });
   reopened.close();
   for (const name of ["old-done", "old-dropped"])
@@ -828,6 +834,7 @@ test("AC-33 a version-2 store is migrated by the first command that opens it, ke
     waiting: [
       {
         name: "queued-one",
+        project: null,
         state: "queued",
         repo: dir,
         goal: "ship it",
@@ -842,7 +849,7 @@ test("AC-33 a version-2 store is migrated by the first command that opens it, ke
     ],
   });
   const reopened = new Database(path, { readonly: true });
-  expect(reopened.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(3);
+  expect(reopened.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(4);
   reopened.close();
 });
 
@@ -889,14 +896,15 @@ test("AC-22 every command runs with git as the only program on PATH, a queued ch
   }
 });
 
-test("AC-35 list leads with the counts in each group and prints by default, as tables, the fields an agent acts on and never a null one", () => {
+test("AC-35 list leads with the counts in each group and prints by default, as tables, the fields an agent acts on and no null one but an unmapped task's project", () => {
   const w = world();
   const dir = repo(w);
   const briefs = join(w.root, "briefs");
   mkdirSync(briefs);
   const first = brief(briefs, "a.md");
   const second = brief(briefs, "b.md");
-  result(start(w, "task-a", dir, first));
+  result(run(w, w.root, ["project", "add", "site", "--name", "The site", "--repo", dir, "--dir", briefs]));
+  result(run(w, w.root, ["start", "task-a", "--repo", dir, "--brief", first, "--project", "site"]));
   result(start(w, "task-b", dir, second));
   result(run(w, w.root, ["review", "task-b"]));
   writeFileSync(first, "# Brief\n\nA fix.\n");
@@ -911,18 +919,18 @@ test("AC-35 list leads with the counts in each group and prints by default, as t
       counts: { running: 1, review: 1, ready: 1, waiting: 1 },
       halt: { state: "none" },
       tasks: [
-        { name: "task-a", state: "running", brief: first, briefChanged: true },
-        { name: "task-b", state: "review", brief: second, briefChanged: false },
+        { name: "task-a", project: "site", state: "running", brief: first, briefChanged: true },
+        { name: "task-b", project: null, state: "review", brief: second, briefChanged: false },
       ],
-      ready: [{ name: "stopped", repo: dir }],
-      waiting: [{ name: "queued", repo: dir }],
+      ready: [{ name: "stopped", project: null, repo: dir }],
+      waiting: [{ name: "queued", project: null, repo: dir }],
     },
   });
   expect(Object.keys(result(ran))).toEqual(["counts", "halt", "tasks", "ready", "waiting"]);
   for (const header of [
-    "tasks[2]{name,state,brief,briefChanged}:",
-    "ready[1]{name,repo}:",
-    "waiting[1]{name,repo}:",
+    "tasks[2]{name,project,state,brief,briefChanged}:",
+    "ready[1]{name,project,repo}:",
+    "waiting[1]{name,project,repo}:",
   ])
     expect(ran.stdout).toContain(`\n  ${header}\n`);
   const full = listing(run(w, w.root, ["list", "--full"]));
@@ -932,8 +940,8 @@ test("AC-35 list leads with the counts in each group and prints by default, as t
   expect(result(started)).toEqual({
     counts: { running: 1, review: 1 },
     tasks: [
-      { name: "task-a", state: "running", brief: first, briefChanged: true },
-      { name: "task-b", state: "review", brief: second, briefChanged: false },
+      { name: "task-a", project: "site", state: "running", brief: first, briefChanged: true },
+      { name: "task-b", project: null, state: "review", brief: second, briefChanged: false },
     ],
   });
   expect(result(run(w, w.root, ["list", "--started", "--full"])).tasks).toEqual(listed(w));

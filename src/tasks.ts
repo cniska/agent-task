@@ -5,12 +5,15 @@ import { refusals } from "./coded-error";
 import { permits } from "./file";
 import { blobSha, mainWorkingTree, type ProcessEnv } from "./git";
 import { type Halt, readHalt, refuseWhileHalted } from "./halt";
+import { parseProjectId } from "./projects";
 import {
   type InReview,
+  heldProject,
   insertQueued,
   insertRunning,
   isTaskName,
   type Priority,
+  type ProjectId,
   type Queued,
   queuedTasks,
   type Running,
@@ -19,6 +22,7 @@ import {
   reviewTask,
   type Started,
   type Store,
+  setProject,
   setWaiting,
   startedTasks,
   startQueued,
@@ -28,6 +32,7 @@ import {
   taskByName,
 } from "./store";
 import { runCheck, type UntilState } from "./until";
+import { actFor, USAGE } from "./usage";
 
 export type Context = {
   readonly store: Store;
@@ -39,30 +44,18 @@ export type Context = {
 
 type State = Task["state"];
 
-type Act = "add" | "start" | "wait" | "review" | "stop" | "done";
-
-export const USAGE = {
-  add: "agent-task add <name> --repo <path> --goal <text> [--plan <file>] [--priority urgent|high|medium|low] [--after <name>]... [--waits <text>] [--until <command>]",
-  start: "agent-task start <name> --repo <path> --brief <file> [--session <id>]",
-  wait: "agent-task wait <name> [--after <name>]... [--waits <text>] [--until <command>]",
-  review: "agent-task review <name>",
-  list: "agent-task list [--started [--brief-under <dir>]] [--full]",
-  stop: "agent-task stop <name>",
-  done: "agent-task done <name>",
-} as const;
-
-export function actFor(usage: string, name: string): string {
-  return usage.replace("<name>", name);
-}
+type Act = "add" | "start" | "wait" | "map" | "review" | "stop" | "done";
 
 function admitted(name: string, state: State): readonly string[] {
   switch (state) {
     case "queued":
-      return [USAGE.add, USAGE.wait, USAGE.start, USAGE.done].map((usage) => actFor(usage, name));
+      return [USAGE.add, USAGE.wait, USAGE.map, USAGE.start, USAGE.done].map((usage) => actFor(usage, name));
     case "running":
-      return [USAGE.wait, USAGE.review, USAGE.stop, USAGE.done].map((usage) => actFor(usage, name));
+      return [USAGE.wait, USAGE.map, USAGE.review, USAGE.stop, USAGE.done].map((usage) =>
+        actFor(usage, name),
+      );
     case "review":
-      return [USAGE.wait, USAGE.stop, USAGE.done].map((usage) => actFor(usage, name));
+      return [USAGE.wait, USAGE.map, USAGE.stop, USAGE.done].map((usage) => actFor(usage, name));
     default:
       return unreachable(state);
   }
@@ -143,8 +136,17 @@ function heldNames(store: Store, act: Act, names: readonly string[]): readonly T
   });
 }
 
+function projectOf(raw: string | null): ProjectId | null {
+  return raw === null ? null : parseProjectId(raw);
+}
+
+function filterOf(store: Store, raw: string | null): ProjectId | null {
+  return raw === null ? null : heldProject(store, parseProjectId(raw)).id;
+}
+
 export type AddRequest = {
   readonly name: string;
+  readonly project: string | null;
   readonly repo: string;
   readonly goal: string;
   readonly plan: string | null;
@@ -162,8 +164,10 @@ export function add({ store, haltPath, processEnv, now }: Context, request: AddR
     throw refuse("plan_unreadable", { plan: request.plan });
   const plan = request.plan === null ? null : realpathSync(request.plan);
   const after = heldNames(store, "add", request.after);
+  const project = projectOf(request.project);
   const task = {
     name,
+    project,
     repo,
     goal: request.goal,
     plan,
@@ -179,6 +183,7 @@ export function add({ store, haltPath, processEnv, now }: Context, request: AddR
 
 export type StartRequest = {
   readonly name: string;
+  readonly project: string | null;
   readonly repo: string;
   readonly brief: string;
   readonly session: string | null;
@@ -193,8 +198,9 @@ export function start({ store, haltPath, processEnv, now }: Context, request: St
   const briefSha = blobSha(request.brief, processEnv);
   if (briefSha === null) throw refuse("brief_unreadable", { brief: request.brief });
   const brief = realpathSync(request.brief);
+  const project = projectOf(request.project);
   const started = now().toISOString();
-  const task = { name, repo, brief, briefSha, session: request.session, started };
+  const task = { name, project, repo, brief, briefSha, session: request.session, started };
   const starting = startQueued(store, task);
   if (starting?.kind === "blocked") throw refuse("blocked", { name, after: starting.after });
   const running = starting?.task ?? insertRunning(store, { ...task, ...UNQUEUED, added: started });
@@ -216,6 +222,14 @@ export function wait({ store, haltPath }: Context, request: WaitRequest): Task {
   const waiting = setWaiting(store, name, { after, waits: request.waits, until: request.until });
   if (waiting === null) throw refuseByState("wait", name, taskByName(store, name));
   return waiting;
+}
+
+export function map({ store, haltPath }: Context, raw: string, rawProject: string): Task {
+  refuseWhileHalted(haltPath);
+  const name = parseName(raw);
+  const mapped = setProject(store, name, parseProjectId(rawProject));
+  if (mapped === null) throw refuse("unknown_task", { name, act: "map" });
+  return mapped;
 }
 
 export function review({ store, now }: Context, raw: string): InReview {
@@ -250,12 +264,22 @@ function isReady(task: Checked): boolean {
   return task.waits === null;
 }
 
-export function listStarted({ store, processEnv }: Context): StartedListing {
-  const tasks = startedTasks(store).map((task) => ({
-    ...task,
-    briefChanged: blobSha(task.brief, processEnv) !== task.briefSha,
-  }));
+function inProject(project: ProjectId | null): (task: { readonly project: ProjectId | null }) => boolean {
+  return (task) => project === null || task.project === project;
+}
+
+function startedIn({ store, processEnv }: Context, project: ProjectId | null): StartedListing {
+  const tasks = startedTasks(store)
+    .filter(inProject(project))
+    .map((task) => ({
+      ...task,
+      briefChanged: blobSha(task.brief, processEnv) !== task.briefSha,
+    }));
   return { tasks };
+}
+
+export function listStarted(context: Context, raw: string | null): StartedListing {
+  return startedIn(context, filterOf(context.store, raw));
 }
 
 function isUnder(dir: string, path: string): boolean {
@@ -263,19 +287,22 @@ function isUnder(dir: string, path: string): boolean {
   return rel !== "" && !isAbsolute(rel) && rel.split(sep)[0] !== "..";
 }
 
-export function listStartedUnder(context: Context, dir: string): StartedListing {
+export function listStartedUnder(context: Context, dir: string, project: string | null): StartedListing {
   if (statSync(dir, { throwIfNoEntry: false })?.isDirectory() !== true)
     throw refuse("no_brief_under", { dir });
   const real = realpathSync(dir);
-  const listing = listStarted(context);
+  const listing = listStarted(context, project);
   if (!listing.tasks.some((task) => isUnder(real, task.brief))) throw refuse("no_brief_under", { dir });
   return listing;
 }
 
-export function list(context: Context): Listing {
-  const queued = queuedTasks(context.store).map((task) => checked(task, context));
+export function list(context: Context, raw: string | null): Listing {
+  const project = filterOf(context.store, raw);
+  const queued = queuedTasks(context.store)
+    .filter(inProject(project))
+    .map((task) => checked(task, context));
   return {
-    ...listStarted(context),
+    ...startedIn(context, project),
     halt: readHalt(context.haltPath),
     ready: queued.filter(isReady),
     waiting: queued.filter((task) => !isReady(task)),

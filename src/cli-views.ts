@@ -1,5 +1,6 @@
 import { unreachable } from "./assert";
 import type { Health } from "./doctor";
+import type { Project } from "./store";
 import type { Checked, Listed, Listing, StartedListing } from "./tasks";
 
 export type View = "default" | "full";
@@ -7,10 +8,17 @@ export type View = "default" | "full";
 function startedRow(task: Listed, view: View) {
   switch (view) {
     case "default":
-      return { name: task.name, state: task.state, brief: task.brief, briefChanged: task.briefChanged };
+      return {
+        name: task.name,
+        project: task.project,
+        state: task.state,
+        brief: task.brief,
+        briefChanged: task.briefChanged,
+      };
     case "full":
       return {
         name: task.name,
+        project: task.project,
         state: task.state,
         repo: task.repo,
         goal: task.goal,
@@ -33,10 +41,11 @@ function startedRow(task: Listed, view: View) {
 function queuedRow(task: Checked, view: View) {
   switch (view) {
     case "default":
-      return { name: task.name, repo: task.repo };
+      return { name: task.name, project: task.project, repo: task.repo };
     case "full":
       return {
         name: task.name,
+        project: task.project,
         state: task.state,
         repo: task.repo,
         goal: task.goal,
@@ -72,6 +81,10 @@ export function listingView({ tasks, halt, ready, waiting }: Listing, view: View
     ready: ready.map((task) => queuedRow(task, view)),
     waiting: waiting.map((task) => queuedRow(task, view)),
   };
+}
+
+export function projectsView(projects: readonly Project[]) {
+  return { counts: { projects: projects.length }, projects };
 }
 
 function healthCount(checks: readonly Health[], state: Health["state"]): number {

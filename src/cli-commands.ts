@@ -1,11 +1,13 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { unreachable } from "./assert";
 import { type Command, type Outcome, type Runtime, usageError } from "./cli-contract";
-import { doctorView, listingView, startedListingView, type View } from "./cli-views";
+import { doctorView, listingView, projectsView, startedListingView, type View } from "./cli-views";
 import { messageOf } from "./coded-error";
 import { DOCTOR_USAGE, doctor } from "./doctor";
 import { HALT_USAGE, haltedNow, liftHalt, raiseHalt } from "./halt";
 import { haltPath, storePath } from "./paths";
+import { addProject, dropProject, listProjects } from "./projects";
 import { closeStore, isPriority, openStore, type Priority } from "./store";
 import {
   add,
@@ -14,12 +16,13 @@ import {
   list,
   listStarted,
   listStartedUnder,
+  map,
   review,
   start,
   stop,
-  USAGE,
   wait,
 } from "./tasks";
+import { PROJECT_USAGE, USAGE } from "./usage";
 
 type Flags = Readonly<Record<string, { readonly type: "string" | "boolean"; readonly multiple?: boolean }>>;
 
@@ -134,11 +137,12 @@ const addCommand: Command = {
   name: "add",
   usage: USAGE.add,
   summary:
-    "queue a task: its repository, goal, plan, priority, what it waits for and the check that says its wait is met; on a queued name, replace them",
+    "queue a task: its repository, goal, project, plan, priority, what it waits for and the check that says its wait is met; on a queued name, replace them",
   run(args, runtime) {
     const { positionals, values } = parsed(this, args, {
       repo: { type: "string" },
       goal: { type: "string" },
+      project: { type: "string" },
       plan: { type: "string" },
       priority: { type: "string" },
       after: { type: "string", multiple: true },
@@ -148,6 +152,7 @@ const addCommand: Command = {
     const name = oneName(this, positionals);
     const repo = resolve(runtime.cwd, oneValue(this, values, "repo"));
     const goal = oneValue(this, values, "goal");
+    const project = optionalValue(this, values, "project");
     const planPath = optionalValue(this, values, "plan");
     const plan = planPath === null ? null : resolve(runtime.cwd, planPath);
     const priority = priorityValue(this, values);
@@ -155,7 +160,7 @@ const addCommand: Command = {
     const waits = optionalValue(this, values, "waits");
     const until = optionalValue(this, values, "until");
     return withContext(runtime, (context) =>
-      add(context, { name, repo, goal, plan, priority, after, waits, until }),
+      add(context, { name, project, repo, goal, plan, priority, after, waits, until }),
     );
   },
 };
@@ -163,18 +168,21 @@ const addCommand: Command = {
 const startCommand: Command = {
   name: "start",
   usage: USAGE.start,
-  summary: "run a task, new or queued: its repository, its brief, the brief's content and the session",
+  summary:
+    "run a task, new or queued: its repository, its brief, the brief's content, the session and, when given, its project",
   run(args, runtime) {
     const { positionals, values } = parsed(this, args, {
       repo: { type: "string" },
       brief: { type: "string" },
+      project: { type: "string" },
       session: { type: "string" },
     });
     const name = oneName(this, positionals);
     const repo = resolve(runtime.cwd, oneValue(this, values, "repo"));
     const brief = resolve(runtime.cwd, oneValue(this, values, "brief"));
+    const project = optionalValue(this, values, "project");
     const session = optionalValue(this, values, "session");
-    return withContext(runtime, (context) => start(context, { name, repo, brief, session }));
+    return withContext(runtime, (context) => start(context, { name, project, repo, brief, session }));
   },
 };
 
@@ -197,6 +205,18 @@ const waitCommand: Command = {
   },
 };
 
+const mapCommand: Command = {
+  name: "map",
+  usage: USAGE.map,
+  summary: "map a task in any state to a project the store holds",
+  run(args, runtime) {
+    const { positionals, values } = parsed(this, args, { project: { type: "string" } });
+    const name = oneName(this, positionals);
+    const project = oneValue(this, values, "project");
+    return withContext(runtime, (context) => map(context, name, project));
+  },
+};
+
 const reviewCommand: Command = {
   name: "review",
   usage: USAGE.review,
@@ -212,11 +232,12 @@ const listCommand: Command = {
   name: "list",
   usage: USAGE.list,
   summary:
-    "list the running and in-review tasks, flagging each whose brief changed since it started, then the queued tasks ready to start and those waiting, running each one's check; --started lists the running and in-review tasks alone and runs no check, and with --brief-under <dir> lists them only when one's brief sits under that directory; --full prints every field of each task",
+    "list the running and in-review tasks, flagging each whose brief changed since it started, then the queued tasks ready to start and those waiting, running each one's check; --started lists the running and in-review tasks alone and runs no check, and with --brief-under <dir> lists them only when one's brief sits under that directory; --project <id> lists only that project's tasks; --full prints every field of each task",
   run(args, runtime) {
     const { positionals, values } = parsed(this, args, {
       started: { type: "boolean" },
       "brief-under": { type: "string" },
+      project: { type: "string" },
       full: { type: "boolean" },
     });
     noArguments(this, positionals);
@@ -224,11 +245,12 @@ const listCommand: Command = {
     const briefUnder = optionalValue(this, values, "brief-under");
     if (briefUnder !== null && !started) refuseArguments(this, "--brief-under takes --started");
     const dir = briefUnder === null ? null : resolve(runtime.cwd, briefUnder);
+    const project = optionalValue(this, values, "project");
     const view = viewOf(values);
     return withContext(runtime, (context) => {
-      if (dir !== null) return startedListingView(listStartedUnder(context, dir), view);
-      if (started) return startedListingView(listStarted(context), view);
-      return listingView(list(context), view);
+      if (dir !== null) return startedListingView(listStartedUnder(context, dir, project), view);
+      if (started) return startedListingView(listStarted(context, project), view);
+      return listingView(list(context, project), view);
     });
   },
 };
@@ -251,6 +273,57 @@ const doneCommand: Command = {
   run(args, runtime) {
     const name = oneName(this, parsed(this, args, {}).positionals);
     return withContext(runtime, (context) => done(context, name));
+  },
+};
+
+const PROJECT_ACTS = ["add", "list", "remove"] as const;
+
+type ProjectAct = (typeof PROJECT_ACTS)[number];
+
+function projectAct(command: Command, act: string | undefined): ProjectAct {
+  const known = PROJECT_ACTS.find((candidate) => candidate === act);
+  if (known === undefined) refuseArguments(command, `takes add, list or remove, and got: ${act ?? "none"}`);
+  return known;
+}
+
+function oneId(command: Command, positionals: readonly string[]): string {
+  const [id, ...rest] = positionals;
+  if (id === undefined || rest.length > 0)
+    refuseArguments(command, `takes one project id, and got: ${positionals.join(" ") || "none"}`);
+  return id;
+}
+
+const projectCommand: Command = {
+  name: "project",
+  usage: [PROJECT_USAGE.add, PROJECT_USAGE.list, PROJECT_USAGE.remove].join(" | "),
+  summary:
+    "add a project, its readable name, its repository and the directory of its briefs and plans, replacing them on an id the store holds; list the projects; or remove one no task belongs to",
+  run(args, runtime) {
+    const [first, ...rest] = args;
+    const act = projectAct(this, first);
+    switch (act) {
+      case "add": {
+        const { positionals, values } = parsed(this, rest, {
+          name: { type: "string" },
+          repo: { type: "string" },
+          dir: { type: "string" },
+        });
+        const id = oneId(this, positionals);
+        const name = oneValue(this, values, "name");
+        const repo = resolve(runtime.cwd, oneValue(this, values, "repo"));
+        const dir = resolve(runtime.cwd, oneValue(this, values, "dir"));
+        return withContext(runtime, (context) => addProject(context, { id, name, repo, dir }));
+      }
+      case "list":
+        noArguments(this, parsed(this, rest, {}).positionals);
+        return withContext(runtime, (context) => projectsView(listProjects(context)));
+      case "remove": {
+        const id = oneId(this, parsed(this, rest, {}).positionals);
+        return withContext(runtime, (context) => dropProject(context, id));
+      }
+      default:
+        return unreachable(act);
+    }
   },
 };
 
@@ -277,7 +350,7 @@ const haltCommand: Command = {
   name: "halt",
   usage: HALT_USAGE.halt,
   summary:
-    "halt all agent work on this machine, recording the reason, until the owner runs resume; while a halt is raised, add, start and wait are refused, and so are the plugin's gated tools; on a raised halt, print it unchanged",
+    "halt all agent work on this machine, recording the reason, until the owner runs resume; while a halt is raised, add, start, wait, map, project add and project remove are refused, and so are the plugin's gated tools; on a raised halt, print it unchanged",
   run(args, runtime) {
     const reason = oneReason(this, parsed(this, args, {}).positionals);
     return { value: { halt: raiseHalt(haltPath(runtime.env), reason, runtime.now()) }, status: 0 };
@@ -309,10 +382,12 @@ export const COMMANDS: readonly Command[] = [
   addCommand,
   startCommand,
   waitCommand,
+  mapCommand,
   reviewCommand,
   listCommand,
   stopCommand,
   doneCommand,
+  projectCommand,
   haltCommand,
   resumeCommand,
   haltedCommand,

@@ -68,7 +68,7 @@ function started(w: World, name: string, dir: string, file: string): void {
   expect(run(w, w.root, ["start", name, "--repo", dir, "--brief", file]).exitCode).toBe(0);
 }
 
-test("AC-26 doctor passes with no store and makes none, warns a version-1 and a version-2 store naming list, and fails one it cannot read, leaving each", () => {
+test("AC-26 doctor passes with no store and makes none, warns a version-1, a version-2 and a version-3 store naming list, and fails one it cannot read, leaving each", () => {
   const w = world();
   const bin = binWith(w, PROGRAMS, true);
   const fresh = doctor(w, bin, 0);
@@ -86,25 +86,25 @@ test("AC-26 doctor passes with no store and makes none, warns a version-1 and a 
     db.close();
     return readFileSync(path);
   };
-  for (const version of [1, 2]) {
+  for (const version of [1, 2, 3]) {
     const old = versioned(version);
     const migratable = doctor(w, bin, 0);
     expect(migratable.failing).toBe(0);
     expect(check(migratable, "store")).toEqual({
       name: "store",
       state: "warn",
-      detail: `${path} is a version ${version} store; this agent-task reads version 3`,
+      detail: `${path} is a version ${version} store; this agent-task reads version 4`,
       fix: "run agent-task list, which migrates it, then run agent-task doctor again",
     });
     expect(readFileSync(path).equals(old)).toBe(true);
   }
-  const newer = versioned(4);
+  const newer = versioned(99);
   const other = doctor(w, bin, 1);
   expect(other.failing).toBe(1);
   expect(check(other, "store")).toEqual({
     name: "store",
     state: "fail",
-    detail: `${path} holds store version 4, and this agent-task reads version 3`,
+    detail: `${path} holds store version 99, and this agent-task reads version 4`,
     fix: "stop and hand this error to the owner: run the agent-task that wrote this store",
   });
   expect(readFileSync(path).equals(newer)).toBe(true);

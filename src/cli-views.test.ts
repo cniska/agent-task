@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { doctorView, listingView, startedListingView } from "./cli-views";
 import type { Halt } from "./halt";
-import { named } from "./repo.test-support";
+import { named, projectNamed } from "./repo.test-support";
 import type { Checked, Listed } from "./tasks";
 
 const ADDED = {
+  project: null,
   repo: "/work/repo",
   goal: null,
   plan: null,
@@ -21,7 +22,13 @@ const BRIEFED = {
   started: "2026-10-16T10:00:00.000Z",
 };
 
-const RUNNING: Listed = { ...BRIEFED, name: named("task-a"), state: "running", briefChanged: true };
+const RUNNING: Listed = {
+  ...BRIEFED,
+  name: named("task-a"),
+  project: projectNamed("site"),
+  state: "running",
+  briefChanged: true,
+};
 
 const IN_REVIEW: Listed = {
   ...BRIEFED,
@@ -55,11 +62,23 @@ describe("the list views", () => {
       counts: { running: 1, review: 1, ready: 1, waiting: 1 },
       halt: { state: "raised", reason: "a flaw in the workflow", raised: "2026-10-16T12:00:00.000Z" },
       tasks: [
-        { name: RUNNING.name, state: "running", brief: "/work/briefs/a.md", briefChanged: true },
-        { name: IN_REVIEW.name, state: "review", brief: "/work/briefs/a.md", briefChanged: false },
+        {
+          name: RUNNING.name,
+          project: RUNNING.project,
+          state: "running",
+          brief: "/work/briefs/a.md",
+          briefChanged: true,
+        },
+        {
+          name: IN_REVIEW.name,
+          project: null,
+          state: "review",
+          brief: "/work/briefs/a.md",
+          briefChanged: false,
+        },
       ],
-      ready: [{ name: READY.name, repo: "/work/repo" }],
-      waiting: [{ name: WAITING.name, repo: "/work/repo" }],
+      ready: [{ name: READY.name, project: null, repo: "/work/repo" }],
+      waiting: [{ name: WAITING.name, project: null, repo: "/work/repo" }],
     });
   });
 
@@ -72,6 +91,7 @@ describe("the list views", () => {
     expect(view.tasks.map((task) => Object.keys(task))).toEqual([
       [
         "name",
+        "project",
         "state",
         "repo",
         "goal",
@@ -94,7 +114,15 @@ describe("the list views", () => {
   test("count the running and in-review tasks alone for the started listing", () => {
     expect(startedListingView({ tasks: [IN_REVIEW] }, "default")).toEqual({
       counts: { running: 0, review: 1 },
-      tasks: [{ name: IN_REVIEW.name, state: "review", brief: "/work/briefs/a.md", briefChanged: false }],
+      tasks: [
+        {
+          name: IN_REVIEW.name,
+          project: null,
+          state: "review",
+          brief: "/work/briefs/a.md",
+          briefChanged: false,
+        },
+      ],
     });
   });
 });

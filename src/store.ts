@@ -3,8 +3,9 @@ import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { invariant, unreachable } from "./assert";
 import { BUG, faults, refusals } from "./coded-error";
+import { PROJECT_USAGE, projectActFor } from "./usage";
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 const PRIORITIES = ["urgent", "high", "medium", "low"] as const;
 
@@ -18,7 +19,18 @@ const PRIORITY_RANK = `CASE priority ${PRIORITIES.map((priority, rank) => `WHEN 
 
 const UNTIL_COLUMN = "until TEXT CHECK (state = 'queued' OR until IS NULL)";
 
-const TABLES = `
+const PROJECTS_TABLE = `
+CREATE TABLE projects (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  repo TEXT NOT NULL,
+  dir TEXT NOT NULL
+) STRICT;
+`;
+
+const PROJECT_COLUMN = "project TEXT REFERENCES projects (id)";
+
+const TABLES = `${PROJECTS_TABLE}
 CREATE TABLE tasks (
   name TEXT PRIMARY KEY,
   state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'review')),
@@ -34,6 +46,7 @@ CREATE TABLE tasks (
   started_at TEXT,
   reviewed_at TEXT,
   ${UNTIL_COLUMN},
+  ${PROJECT_COLUMN},
   CHECK ((state = 'queued') = (brief IS NULL)),
   CHECK ((state = 'review') = (reviewed_at IS NOT NULL)),
   CHECK ((brief IS NULL) = (brief_sha IS NULL)),
@@ -61,14 +74,19 @@ DROP TABLE tasks_v1;
 ${VERSION_PRAGMA}
 `;
 
-const MIGRATE_FROM_VERSION_TWO = `
-ALTER TABLE tasks ADD COLUMN ${UNTIL_COLUMN};
+const MIGRATE_FROM_VERSION_THREE = `${PROJECTS_TABLE}
+ALTER TABLE tasks ADD COLUMN ${PROJECT_COLUMN};
 ${VERSION_PRAGMA}
 `;
+
+const MIGRATE_FROM_VERSION_TWO = `
+ALTER TABLE tasks ADD COLUMN ${UNTIL_COLUMN};
+${MIGRATE_FROM_VERSION_THREE}`;
 
 const MIGRATIONS = {
   1: MIGRATE_FROM_VERSION_ONE,
   2: MIGRATE_FROM_VERSION_TWO,
+  3: MIGRATE_FROM_VERSION_THREE,
 } as const;
 
 type MigratableVersion = keyof typeof MIGRATIONS;
@@ -78,7 +96,9 @@ function isMigratable(version: number): version is MigratableVersion {
 }
 
 const TASK_COLUMNS =
-  "name, state, repo, goal, plan, priority, waits, added_at, brief, brief_sha, session, started_at, reviewed_at, until";
+  "name, state, repo, goal, plan, priority, waits, added_at, brief, brief_sha, session, started_at, reviewed_at, until, project";
+
+const PROJECT_COLUMNS = "id, name, repo, dir";
 
 const BUSY = "SQLITE_BUSY";
 
@@ -90,7 +110,13 @@ const refuse = refusals<{
   readonly store_busy: { readonly path: string; readonly waitedMs: number };
   readonly store_unopenable: { readonly path: string; readonly detail: string };
   readonly store_version: { readonly path: string; readonly found: number; readonly expected: number };
+  readonly unknown_project: { readonly id: string };
 }>({
+  unknown_project: {
+    message: ({ id }) => `the store holds no project ${id}`,
+    resolve: ({ id }) =>
+      `${projectActFor(PROJECT_USAGE.add, id)} first; ${PROJECT_USAGE.list} lists the projects`,
+  },
   store_busy: {
     message: ({ path, waitedMs }) => `${path} stayed locked by another agent-task for ${waitedMs} ms`,
     resolve: () => "run the command again once the other agent-task command has finished",
@@ -124,8 +150,33 @@ function taskName(row: Record<string, unknown>): TaskName {
   return name;
 }
 
+export type ProjectId = string & { readonly __brand: "ProjectId" };
+
+export function isProjectId(id: string): id is ProjectId {
+  return TASK_NAME.test(id);
+}
+
+function projectId(value: string): ProjectId {
+  if (!isProjectId(value))
+    throw fault("row_malformed", { detail: `${JSON.stringify(value)} is no project id` });
+  return value;
+}
+
+function nullableProjectId(row: Record<string, unknown>): ProjectId | null {
+  const value = nullableText(row, "project");
+  return value === null ? null : projectId(value);
+}
+
+export type Project = {
+  readonly id: ProjectId;
+  readonly name: string;
+  readonly repo: string;
+  readonly dir: string;
+};
+
 type Added = {
   readonly name: TaskName;
+  readonly project: ProjectId | null;
   readonly repo: string;
   readonly goal: string | null;
   readonly plan: string | null;
@@ -307,6 +358,7 @@ function parseTask(value: unknown, after: readonly TaskName[]): Task {
   const row = rowRecord(value);
   const added: Added = {
     name: taskName(row),
+    project: nullableProjectId(row),
     repo: text(row, "repo"),
     goal: nullableText(row, "goal"),
     plan: nullableText(row, "plan"),
@@ -376,20 +428,49 @@ function immediately<T>(store: Store, act: () => T): T {
   return translated(store, () => store.db.transaction(act).immediate());
 }
 
+function projectRow(db: Database, id: ProjectId): unknown {
+  return db.query<unknown, [string]>(`SELECT ${PROJECT_COLUMNS} FROM projects WHERE id = ?`).get(id);
+}
+
+function requireHeld(db: Database, id: ProjectId | null): void {
+  if (id !== null && projectRow(db, id) === null) throw refuse("unknown_project", { id });
+}
+
 export type NewQueued = Omit<Queued, "state">;
 
 export function insertQueued(store: Store, task: NewQueued): Queued | null {
   const { db } = store;
   return immediately(store, () => {
+    requireHeld(db, task.project);
     const row = db
       .query<
         unknown,
-        [string, string, string | null, string | null, Priority | null, string | null, string, string | null]
+        [
+          string,
+          string,
+          string | null,
+          string | null,
+          Priority | null,
+          string | null,
+          string,
+          string | null,
+          string | null,
+        ]
       >(
-        `INSERT INTO tasks (name, state, repo, goal, plan, priority, waits, added_at, until)
-         VALUES (?, 'queued', ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (name) DO NOTHING RETURNING ${TASK_COLUMNS}`,
+        `INSERT INTO tasks (name, state, repo, goal, plan, priority, waits, added_at, until, project)
+         VALUES (?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (name) DO NOTHING RETURNING ${TASK_COLUMNS}`,
       )
-      .get(task.name, task.repo, task.goal, task.plan, task.priority, task.waits, task.added, task.until);
+      .get(
+        task.name,
+        task.repo,
+        task.goal,
+        task.plan,
+        task.priority,
+        task.waits,
+        task.added,
+        task.until,
+        task.project,
+      );
     if (row === null) return null;
     setAfter(db, task.name, task.after);
     return parseQueued(row, afterOf(db, task.name));
@@ -399,15 +480,25 @@ export function insertQueued(store: Store, task: NewQueued): Queued | null {
 export function replaceQueued(store: Store, task: Omit<NewQueued, "added">): Queued | null {
   const { db } = store;
   return immediately(store, () => {
+    requireHeld(db, task.project);
     const row = db
       .query<
         unknown,
-        [string, string | null, string | null, Priority | null, string | null, string | null, string]
+        [
+          string,
+          string | null,
+          string | null,
+          Priority | null,
+          string | null,
+          string | null,
+          string | null,
+          string,
+        ]
       >(
-        `UPDATE tasks SET repo = ?, goal = ?, plan = ?, priority = ?, waits = ?, until = ?
+        `UPDATE tasks SET repo = ?, goal = ?, plan = ?, priority = ?, waits = ?, until = ?, project = ?
          WHERE name = ? AND state = 'queued' RETURNING ${TASK_COLUMNS}`,
       )
-      .get(task.repo, task.goal, task.plan, task.priority, task.waits, task.until, task.name);
+      .get(task.repo, task.goal, task.plan, task.priority, task.waits, task.until, task.project, task.name);
     if (row === null) return null;
     setAfter(db, task.name, task.after);
     return parseQueued(row, afterOf(db, task.name));
@@ -418,8 +509,9 @@ export type NewRunning = Omit<Running, "state">;
 
 export function insertRunning(store: Store, task: NewRunning): Running | null {
   const { db } = store;
-  const row = translated(store, () =>
-    db
+  const row = immediately(store, () => {
+    requireHeld(db, task.project);
+    return db
       .query<
         unknown,
         [
@@ -434,10 +526,12 @@ export function insertRunning(store: Store, task: NewRunning): Running | null {
           string,
           string | null,
           string,
+          string | null,
         ]
       >(
-        `INSERT INTO tasks (name, state, repo, goal, plan, priority, waits, added_at, brief, brief_sha, session, started_at)
-         VALUES (?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (name) DO NOTHING RETURNING ${TASK_COLUMNS}`,
+        `INSERT INTO tasks (name, state, repo, goal, plan, priority, waits, added_at, brief, brief_sha, session, started_at,
+           project)
+         VALUES (?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (name) DO NOTHING RETURNING ${TASK_COLUMNS}`,
       )
       .get(
         task.name,
@@ -451,12 +545,13 @@ export function insertRunning(store: Store, task: NewRunning): Running | null {
         task.briefSha,
         task.session,
         task.started,
-      ),
-  );
+        task.project,
+      );
+  });
   return row === null ? null : parseRunning(row);
 }
 
-export type Start = Pick<Running, "name" | "repo" | "brief" | "briefSha" | "session" | "started">;
+export type Start = Pick<Running, "name" | "project" | "repo" | "brief" | "briefSha" | "session" | "started">;
 
 export type Starting =
   | { readonly kind: "blocked"; readonly after: readonly TaskName[] }
@@ -465,15 +560,16 @@ export type Starting =
 export function startQueued(store: Store, task: Start): Starting | null {
   const { db } = store;
   return immediately(store, () => {
+    requireHeld(db, task.project);
     const after = afterOf(db, task.name);
     if (after.length > 0) return { kind: "blocked", after };
     const row = db
-      .query<unknown, [string, string, string, string | null, string, string]>(
-        `UPDATE tasks SET state = 'running', repo = ?, brief = ?, brief_sha = ?, session = ?, started_at = ?,
-           until = NULL
+      .query<unknown, [string | null, string, string, string, string | null, string, string]>(
+        `UPDATE tasks SET project = coalesce(?, project), state = 'running', repo = ?, brief = ?, brief_sha = ?,
+           session = ?, started_at = ?, until = NULL
          WHERE name = ? AND state = 'queued' RETURNING ${TASK_COLUMNS}`,
       )
-      .get(task.repo, task.brief, task.briefSha, task.session, task.started, task.name);
+      .get(task.project, task.repo, task.brief, task.briefSha, task.session, task.started, task.name);
     if (row === null) return null;
     setAfter(db, task.name, []);
     return { kind: "started", task: parseRunning(row) };
@@ -537,6 +633,81 @@ export function removeTask(store: Store, name: TaskName): Task | null {
       .query<unknown, [string]>(`DELETE FROM tasks WHERE name = ? RETURNING ${TASK_COLUMNS}`)
       .get(name);
     return row === null ? null : parseTask(row, after);
+  });
+}
+
+export function setProject(store: Store, name: TaskName, project: ProjectId): Task | null {
+  const { db } = store;
+  return immediately(store, () => {
+    requireHeld(db, project);
+    const row = db
+      .query<unknown, [string, string]>(
+        `UPDATE tasks SET project = ? WHERE name = ? RETURNING ${TASK_COLUMNS}`,
+      )
+      .get(project, name);
+    return row === null ? null : parseTask(row, afterOf(db, name));
+  });
+}
+
+function parseProject(value: unknown): Project {
+  const row = rowRecord(value);
+  return {
+    id: projectId(text(row, "id")),
+    name: text(row, "name"),
+    repo: text(row, "repo"),
+    dir: text(row, "dir"),
+  };
+}
+
+export function putProject(store: Store, project: Project): Project {
+  const { db } = store;
+  const row = translated(store, () =>
+    db
+      .query<unknown, [string, string, string, string]>(
+        `INSERT INTO projects (id, name, repo, dir) VALUES (?, ?, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET name = excluded.name, repo = excluded.repo, dir = excluded.dir
+         RETURNING ${PROJECT_COLUMNS}`,
+      )
+      .get(project.id, project.name, project.repo, project.dir),
+  );
+  invariant(row !== null, "an upsert returns its row");
+  return parseProject(row);
+}
+
+export function heldProject(store: Store, id: ProjectId): Project {
+  const { db } = store;
+  return translated(store, () => {
+    const row = projectRow(db, id);
+    if (row === null) throw refuse("unknown_project", { id });
+    return parseProject(row);
+  });
+}
+
+export function allProjects(store: Store): readonly Project[] {
+  const { db } = store;
+  return translated(store, () =>
+    db.query<unknown, []>(`SELECT ${PROJECT_COLUMNS} FROM projects ORDER BY id`).all(),
+  ).map(parseProject);
+}
+
+export type Removal =
+  | { readonly kind: "removed"; readonly project: Project }
+  | { readonly kind: "in_use"; readonly tasks: readonly TaskName[] };
+
+export function removeProject(store: Store, id: ProjectId): Removal {
+  const { db } = store;
+  return immediately(store, () => {
+    requireHeld(db, id);
+    const tasks = db
+      .query<unknown, [string]>("SELECT name FROM tasks WHERE project = ? ORDER BY name")
+      .all(id)
+      .map((row) => taskName(rowRecord(row)));
+    if (tasks.length > 0) return { kind: "in_use", tasks };
+    const row = db
+      .query<unknown, [string]>(`DELETE FROM projects WHERE id = ? RETURNING ${PROJECT_COLUMNS}`)
+      .get(id);
+    invariant(row !== null, "a held project is removed");
+    return { kind: "removed", project: parseProject(row) };
   });
 }
 
