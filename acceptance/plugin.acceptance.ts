@@ -116,7 +116,10 @@ test("AC-24 the session hook adds its note naming agent-task's commands from any
     "not in a ledger, a notes file or a plan",
     "`agent-task add`",
     "`agent-task start`",
+    "`agent-task review`",
     "`agent-task done`",
+    "`agent-task halt",
+    "`agent-task resume`",
   ])
     expect(NOTE).toContain(named);
   expect(pluginName()).toBe("cniska-task");
