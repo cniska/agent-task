@@ -169,7 +169,7 @@ test("AC-43 list --project prints only that project's tasks and counts, list pri
   result(run(w, w.root, ["add", "ready-none", "--repo", dir, "--goal", "go"]));
   for (const id of ["site", "app"]) {
     const filtered = result(run(w, w.root, ["list", "--project", id]));
-    expect(filtered.counts).toEqual({ running: 1, review: 0, ready: 1, waiting: 1, owner: 0 });
+    expect(filtered.counts).toEqual({ running: 1, review: 0, ready: 1, waiting: 1 });
     const shown = listing(run(w, w.root, ["list", "--project", id]));
     expect([names(shown.tasks), names(shown.ready), names(shown.waiting)]).toEqual([
       [`run-${id}`],
@@ -293,6 +293,72 @@ test("AC-45 a version-3 store is migrated by the first command that opens it, ke
   ]);
   expect(projectsOf(w)).toEqual({ counts: { projects: 0 }, projects: [] });
   const reopened = new Database(path, { readonly: true });
-  expect(reopened.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(4);
+  expect(reopened.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(5);
+  reopened.close();
+});
+
+const VERSION_FOUR = `
+CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, repo TEXT NOT NULL, dir TEXT NOT NULL) STRICT;
+CREATE TABLE tasks (
+  name TEXT PRIMARY KEY,
+  state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'review', 'owner')),
+  repo TEXT,
+  goal TEXT,
+  plan TEXT,
+  priority TEXT CHECK (priority IN ('urgent', 'high', 'medium', 'low')),
+  waits TEXT,
+  added_at TEXT NOT NULL,
+  brief TEXT,
+  brief_sha TEXT,
+  session TEXT,
+  started_at TEXT,
+  reviewed_at TEXT,
+  until TEXT CHECK (state = 'queued' OR until IS NULL),
+  project TEXT REFERENCES projects (id),
+  ask TEXT,
+  CHECK ((state IN ('queued', 'owner')) = (brief IS NULL)),
+  CHECK ((state = 'review') = (reviewed_at IS NOT NULL)),
+  CHECK ((brief IS NULL) = (brief_sha IS NULL)),
+  CHECK ((brief IS NULL) = (started_at IS NULL)),
+  CHECK (brief IS NOT NULL OR session IS NULL),
+  CHECK ((state = 'owner') = (repo IS NULL)),
+  CHECK ((state = 'owner') = (ask IS NOT NULL)),
+  CHECK (state <> 'owner' OR (goal IS NULL AND plan IS NULL AND waits IS NULL))
+) STRICT;
+CREATE TABLE task_after (
+  task TEXT NOT NULL REFERENCES tasks (name) ON DELETE CASCADE,
+  after TEXT NOT NULL,
+  PRIMARY KEY (task, after)
+) STRICT;
+`;
+
+test("AC-46 a version-4 store is migrated by the first command that opens it, dropping its owner item and keeping its tasks and projects", () => {
+  const w = world();
+  const dir = repo(w);
+  const store = join(w.root, "data", "agent-task");
+  mkdirSync(store, { recursive: true });
+  const path = join(store, "tasks.db");
+  const added = "2026-10-15T08:00:00.000Z";
+  const db = new Database(path);
+  db.run(VERSION_FOUR);
+  db.run("INSERT INTO projects VALUES ('site', 'The site', ?, ?)", [dir, dir]);
+  db.run(
+    "INSERT INTO tasks VALUES ('queued-one', 'queued', ?, 'ship it', NULL, NULL, NULL, ?, NULL, NULL, NULL, NULL, NULL, 'exit 0', 'site', NULL)",
+    [dir, added],
+  );
+  db.run(
+    "INSERT INTO tasks VALUES ('ask-domain', 'owner', NULL, NULL, NULL, NULL, NULL, ?, NULL, NULL, NULL, NULL, NULL, NULL, 'site', 'Which domain?')",
+    [added],
+  );
+  db.run("INSERT INTO task_after VALUES ('queued-one', 'ask-domain')");
+  db.run("PRAGMA user_version = 4");
+  db.close();
+  const full = listing(run(w, w.root, ["list", "--full"]));
+  expect(full.ready).toMatchObject([
+    { name: "queued-one", project: "site", goal: "ship it", after: [], until: "exit 0", untilState: "met" },
+  ]);
+  expect(projectsOf(w)).toMatchObject({ counts: { projects: 1 }, projects: [{ id: "site" }] });
+  const reopened = new Database(path, { readonly: true });
+  expect(reopened.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(5);
   reopened.close();
 });

@@ -40,7 +40,6 @@ test("AC-19 no command prints what list prints, --help lists the commands and th
         "start",
         "wait",
         "map",
-        "ask",
         "review",
         "list",
         "stop",

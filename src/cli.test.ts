@@ -35,7 +35,6 @@ describe("the cli", () => {
           "start",
           "wait",
           "map",
-          "ask",
           "review",
           "list",
           "stop",
@@ -61,7 +60,7 @@ describe("the cli", () => {
     expect(cli("list")).toEqual({
       status: 0,
       stdout:
-        "command: list\nok: true\nresult:\n  counts:\n    running: 0\n    review: 0\n    ready: 0\n    waiting: 0\n    owner: 0\n  halt:\n    state: none\n  tasks: []\n  ready: []\n  waiting: []\n  owner: []\n",
+        "command: list\nok: true\nresult:\n  counts:\n    running: 0\n    review: 0\n    ready: 0\n    waiting: 0\n  halt:\n    state: none\n  tasks: []\n  ready: []\n  waiting: []\n",
       stderr: "",
     });
   });
@@ -107,10 +106,10 @@ describe("the cli", () => {
         meta: {
           name: "frobnicate",
           usage:
-            "agent-task add|start|wait|map|ask|review|list|stop|done|project|halt|resume|halted|doctor|--help|--version",
+            "agent-task add|start|wait|map|review|list|stop|done|project|halt|resume|halted|doctor|--help|--version",
         },
         resolve:
-          "agent-task add|start|wait|map|ask|review|list|stop|done|project|halt|resume|halted|doctor|--help|--version",
+          "agent-task add|start|wait|map|review|list|stop|done|project|halt|resume|halted|doctor|--help|--version",
       },
     });
   });

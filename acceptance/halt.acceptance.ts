@@ -32,7 +32,7 @@ test("AC-38 halt stops add, start and wait until resume lifts it, halted and lis
     resolve: OWNER_RESUMES,
   });
   const listed = result(run(w, w.root, ["list"]));
-  expect(Object.keys(listed)).toEqual(["counts", "halt", "tasks", "ready", "waiting", "owner"]);
+  expect(Object.keys(listed)).toEqual(["counts", "halt", "tasks", "ready", "waiting"]);
   expect(listed.halt).toEqual(raised);
   for (const args of [
     ["add", "task-b", "--repo", dir, "--goal", "do b"],

@@ -22,9 +22,7 @@ import {
   startedTasks,
   startQueued,
   stopTask,
-  heldByName,
-  ownerItems,
-  putOwnerItem,
+  taskByName,
 } from "./store";
 
 afterAll(removeScratchDirs);
@@ -143,6 +141,49 @@ INSERT INTO task_after VALUES ('queued-one', 'running-one');
 PRAGMA user_version = 3;
 `;
 
+const VERSION_FOUR = `
+CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, repo TEXT NOT NULL, dir TEXT NOT NULL) STRICT;
+CREATE TABLE tasks (
+  name TEXT PRIMARY KEY,
+  state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'review', 'owner')),
+  repo TEXT,
+  goal TEXT,
+  plan TEXT,
+  priority TEXT CHECK (priority IN ('urgent', 'high', 'medium', 'low')),
+  waits TEXT,
+  added_at TEXT NOT NULL,
+  brief TEXT,
+  brief_sha TEXT,
+  session TEXT,
+  started_at TEXT,
+  reviewed_at TEXT,
+  until TEXT CHECK (state = 'queued' OR until IS NULL),
+  project TEXT REFERENCES projects (id),
+  ask TEXT,
+  CHECK ((state IN ('queued', 'owner')) = (brief IS NULL)),
+  CHECK ((state = 'review') = (reviewed_at IS NOT NULL)),
+  CHECK ((brief IS NULL) = (brief_sha IS NULL)),
+  CHECK ((brief IS NULL) = (started_at IS NULL)),
+  CHECK (brief IS NOT NULL OR session IS NULL),
+  CHECK ((state = 'owner') = (repo IS NULL)),
+  CHECK ((state = 'owner') = (ask IS NOT NULL)),
+  CHECK (state <> 'owner' OR (goal IS NULL AND plan IS NULL AND waits IS NULL))
+) STRICT;
+CREATE TABLE task_after (
+  task TEXT NOT NULL REFERENCES tasks (name) ON DELETE CASCADE,
+  after TEXT NOT NULL,
+  PRIMARY KEY (task, after)
+) STRICT;
+INSERT INTO projects VALUES ('site', 'The site', '/r', '/r/briefs');
+INSERT INTO tasks VALUES ('queued-one', 'queued', '/r', 'ship it', NULL, NULL, NULL, '2026-10-15T08:00:00.000Z', NULL, NULL, NULL, NULL, NULL, 'exit 0', 'site', NULL);
+INSERT INTO tasks VALUES ('running-one', 'running', '/r', NULL, NULL, NULL, NULL, '2026-10-15T09:00:00.000Z', '/r/run.md', 'sha1', 's1', '2026-10-15T09:00:00.000Z', NULL, NULL, NULL, NULL);
+INSERT INTO tasks VALUES ('ask-key', 'owner', NULL, NULL, NULL, 'high', NULL, '2026-10-15T07:00:00.000Z', NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'Rotate the key');
+INSERT INTO tasks VALUES ('ask-domain', 'owner', NULL, NULL, NULL, NULL, NULL, '2026-10-15T07:30:00.000Z', NULL, NULL, NULL, NULL, NULL, NULL, 'site', 'Which domain?');
+INSERT INTO task_after VALUES ('queued-one', 'running-one');
+INSERT INTO task_after VALUES ('queued-one', 'ask-domain');
+PRAGMA user_version = 4;
+`;
+
 const PROJECT = { id: projectNamed("site"), name: "The site", repo: "/r", dir: "/r/briefs" };
 
 function storeOf(schema: string): string {
@@ -178,11 +219,11 @@ describe("the store", () => {
     const held = { ...full, after: [named("a")], state: "queued" as const };
     expect(insertQueued(store, full)).toEqual(held);
     expect(insertQueued(store, QUEUED)).toBeNull();
-    expect(heldByName(store, named("a"))).toEqual({ ...RUNNING, state: "running" });
-    expect(heldByName(store, named("b"))).toEqual(held);
+    expect(taskByName(store, named("a"))).toEqual({ ...RUNNING, state: "running" });
+    expect(taskByName(store, named("b"))).toEqual(held);
     insertQueued(store, { ...QUEUED, name: named("zed") });
-    expect(heldByName(store, named("b"))).toEqual({ ...full, state: "queued" });
-    expect(heldByName(store, named("c"))).toBeNull();
+    expect(taskByName(store, named("b"))).toEqual({ ...full, state: "queued" });
+    expect(taskByName(store, named("c"))).toBeNull();
   });
 
   test("replaces only a queued task's fields, after names and check, keeping its added time", () => {
@@ -202,10 +243,10 @@ describe("the store", () => {
       until: "exit 0",
     };
     expect(replaceQueued(store, replaced)).toEqual({ ...replaced, added: QUEUED.added, state: "queued" });
-    expect(heldByName(store, named("b"))).toMatchObject({ after: [named("c")] });
+    expect(taskByName(store, named("b"))).toMatchObject({ after: [named("c")] });
     expect(replaceQueued(store, { ...replaced, name: named("a") })).toBeNull();
     expect(replaceQueued(store, { ...replaced, name: named("missing") })).toBeNull();
-    expect(heldByName(store, named("a"))).toEqual({ ...RUNNING, state: "running" });
+    expect(taskByName(store, named("a"))).toEqual({ ...RUNNING, state: "running" });
   });
 
   test("starts only a queued task, keeping its fields, taking the repo and dropping its after names and check, and shows only the after names the store holds", () => {
@@ -221,12 +262,12 @@ describe("the store", () => {
     expect(insertQueued(store, queued)).toMatchObject({ after: [] });
     insertQueued(store, { ...QUEUED, name: named("b") });
     const held = { ...queued, state: "queued" as const, after: [named("b")] };
-    expect(heldByName(store, named("a"))).toEqual(held);
+    expect(taskByName(store, named("a"))).toEqual(held);
     const start = { name: named("a"), project: null, repo: "/moved", ...STARTED };
     expect(startQueued(store, start)).toEqual({ kind: "blocked", after: [named("b")] });
-    expect(heldByName(store, named("a"))).toEqual(held);
+    expect(taskByName(store, named("a"))).toEqual(held);
     removeTask(store, named("b"));
-    expect(heldByName(store, named("a"))).toMatchObject({ after: [] });
+    expect(taskByName(store, named("a"))).toMatchObject({ after: [] });
     const { after, until, ...fields } = queued;
     expect([after.length, until]).toEqual([2, "exit 0"]);
     expect(startQueued(store, start)).toEqual({
@@ -268,7 +309,7 @@ describe("the store", () => {
     });
     expect(setWaiting(store, named("r"), { after: [named("a")], waits: null, until: null })).toBeNull();
     expect(setWaiting(store, named("r"), { after: [], waits: null, until: "exit 0" })).toBeNull();
-    expect(heldByName(store, named("r"))).toMatchObject({ waits: "ci" });
+    expect(taskByName(store, named("r"))).toMatchObject({ waits: "ci" });
     expect(setWaiting(store, named("missing"), { after: [], waits: null, until: null })).toBeNull();
   });
 
@@ -282,7 +323,7 @@ describe("the store", () => {
     expect(reviewTask(store, named("a"), "2026-10-16T13:00:00.000Z")).toBeNull();
     expect(reviewTask(store, named("c"), reviewed.reviewed)).toBeNull();
     expect(reviewTask(store, named("missing"), reviewed.reviewed)).toBeNull();
-    expect(heldByName(store, named("a"))).toEqual(reviewed);
+    expect(taskByName(store, named("a"))).toEqual(reviewed);
     expect(startedTasks(store).map(({ name, state }) => [name, state])).toEqual([
       [named("b"), "running"],
       [named("a"), "review"],
@@ -302,7 +343,7 @@ describe("the store", () => {
     insertQueued(store, { ...QUEUED, name: named("c"), after: [named("b")] });
     expect(removeTask(store, named("c"))).toMatchObject({ after: [named("b")] });
     expect(store.db.query<{ n: number }, []>("SELECT count(*) AS n FROM task_after").get()?.n).toBe(0);
-    expect(heldByName(store, named("a"))).toBeNull();
+    expect(taskByName(store, named("a"))).toBeNull();
     expect(insertRunning(store, RUNNING)).toMatchObject({ state: "running" });
     expect(removeTask(store, named("a"))).toEqual({ ...RUNNING, state: "running" });
     expect(removeTask(store, named("b"))).toMatchObject({ state: "queued" });
@@ -363,7 +404,7 @@ describe("the store", () => {
     expect(() => migrated.db.run("UPDATE tasks SET until = 'exit 0' WHERE name = 'running-one'")).toThrow();
     expect(() => migrated.db.run("UPDATE tasks SET until = 'exit 0' WHERE name = 'review-one'")).toThrow();
     migrated.db.run("UPDATE tasks SET until = 'exit 0' WHERE name = 'queued-one'");
-    expect(heldByName(migrated, named("queued-one"))).toMatchObject({ until: "exit 0" });
+    expect(taskByName(migrated, named("queued-one"))).toMatchObject({ until: "exit 0" });
     closeStore(migrated);
     expect(() =>
       store.db.run(
@@ -388,14 +429,14 @@ describe("the store", () => {
         started: "2026-10-15T08:00:00.000Z",
       },
     ]);
-    expect(heldByName(store, named("old-done"))).toBeNull();
-    expect(heldByName(store, named("old-dropped"))).toBeNull();
+    expect(taskByName(store, named("old-done"))).toBeNull();
+    expect(taskByName(store, named("old-dropped"))).toBeNull();
     expect(
       store.db
         .query<{ n: number }, []>("SELECT count(*) AS n FROM sqlite_master WHERE name = 'task_commits'")
         .get()?.n,
     ).toBe(0);
-    expect(store.db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(4);
+    expect(store.db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(5);
     closeStore(store);
     expect(insertRunning(openStore(path, WAIT), { ...RUNNING, name: named("old-done") })).toMatchObject({
       state: "running",
@@ -446,7 +487,7 @@ describe("the store", () => {
         reviewed: "2026-10-15T11:00:00.000Z",
       },
     ]);
-    expect(store.db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(4);
+    expect(store.db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(5);
     closeStore(store);
   });
 
@@ -466,7 +507,7 @@ describe("the store", () => {
     ]);
     expect(startedTasks(store)).toMatchObject([{ name: named("running-one"), project: null, session: "s1" }]);
     expect(allProjects(store)).toEqual([]);
-    expect(store.db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(4);
+    expect(store.db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(5);
     expect(store.db.query<{ foreign_keys: number }, []>("PRAGMA foreign_keys").get()?.foreign_keys).toBe(1);
     expect(() => store.db.run("INSERT INTO task_after VALUES ('nobody', 'queued-one')")).toThrow();
     removeTask(store, named("queued-one"));
@@ -484,9 +525,7 @@ describe("the store", () => {
     );
     const kept = new Database(path, { readonly: true });
     expect(kept.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(3);
-    expect(kept.query("SELECT name FROM sqlite_master WHERE name IN ('projects', 'tasks_v4')").all()).toEqual(
-      [],
-    );
+    expect(kept.query("SELECT name FROM sqlite_master WHERE name = 'projects'").all()).toEqual([]);
     expect(kept.query("SELECT task FROM task_after").all()).toEqual([
       { task: "queued-one" },
       { task: "nobody" },
@@ -494,47 +533,37 @@ describe("the store", () => {
     kept.close();
   });
 
-  test("puts an owner item, replacing its project, priority and text on its name and keeping its time, and returns null for a task's name", () => {
-    const store = freshStore();
-    putProject(store, PROJECT);
-    const item = {
-      name: named("ask"),
-      project: PROJECT.id,
-      priority: "low" as const,
-      ask: "Which domain?",
-      added: "2026-10-16T09:00:00.000Z",
-    };
-    expect(putOwnerItem(store, item)).toEqual({ ...item, state: "owner" });
-    const replaced = { ...item, project: null, priority: null, ask: "Rotate the key", added: "later" };
-    expect(putOwnerItem(store, replaced)).toEqual({ ...replaced, state: "owner", added: item.added });
-    insertQueued(store, QUEUED);
-    expect(putOwnerItem(store, { ...item, name: named("a") })).toBeNull();
-    expect(() =>
-      putOwnerItem(store, { ...item, name: named("b"), project: projectNamed("nowhere") }),
-    ).toThrow(unknownProject("nowhere"));
-    expect(heldByName(store, named("a"))).toMatchObject({ state: "queued" });
-    expect(heldByName(store, named("ask"))).toMatchObject({ state: "owner", ask: "Rotate the key" });
-  });
-
-  test("lists owner items by priority, added time and name, apart from the queued and started tasks, and holds their rules", () => {
-    const store = freshStore();
-    const item = { project: null, priority: null, ask: "?", added: "2026-10-16T09:00:00.000Z" };
-    putOwnerItem(store, { ...item, name: named("b") });
-    putOwnerItem(store, { ...item, name: named("c"), priority: "urgent" });
-    putOwnerItem(store, { ...item, name: named("a") });
-    insertQueued(store, { ...QUEUED, name: named("q") });
-    expect(ownerItems(store).map(({ name }) => name)).toEqual([named("c"), named("a"), named("b")]);
-    expect(queuedTasks(store).map(({ name }) => name)).toEqual([named("q")]);
-    expect(startedTasks(store)).toEqual([]);
-    expect(setWaiting(store, named("a"), { after: [], waits: "x", until: null })).toBeNull();
-    expect(startQueued(store, { name: named("a"), project: null, repo: "/r", ...STARTED })).toBeNull();
-    expect(stopTask(store, named("a"))).toBeNull();
-    expect(() => store.db.run("UPDATE tasks SET repo = '/r' WHERE name = 'a'")).toThrow();
-    expect(() => store.db.run("UPDATE tasks SET ask = NULL WHERE name = 'a'")).toThrow();
-    expect(() => store.db.run("UPDATE tasks SET goal = 'g' WHERE name = 'a'")).toThrow();
-    expect(() => store.db.run("UPDATE tasks SET ask = '?' WHERE name = 'q'")).toThrow();
-    expect(() => store.db.run("UPDATE tasks SET repo = NULL WHERE name = 'q'")).toThrow();
-    expect(removeTask(store, named("a"))).toMatchObject({ name: named("a"), state: "owner" });
+  test("migrates a version-4 store, dropping its owner items and the after names naming them, keeping every task, its project, check and other after names", () => {
+    const store = openStore(storeOf(VERSION_FOUR), WAIT);
+    expect(queuedTasks(store)).toEqual([
+      {
+        name: named("queued-one"),
+        ...FIELDS,
+        project: PROJECT.id,
+        goal: "ship it",
+        state: "queued",
+        repo: "/r",
+        added: "2026-10-15T08:00:00.000Z",
+        after: [named("running-one")],
+        until: "exit 0",
+      },
+    ]);
+    expect(startedTasks(store)).toMatchObject([{ name: named("running-one"), project: null, session: "s1" }]);
+    expect(allProjects(store)).toEqual([PROJECT]);
+    expect(store.db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(5);
+    expect(taskByName(store, named("ask-domain"))).toBeNull();
+    expect(taskByName(store, named("ask-key"))).toBeNull();
+    expect(store.db.query("SELECT after FROM task_after").all()).toEqual([{ after: "running-one" }]);
+    expect(store.db.query("SELECT name FROM pragma_table_info('tasks') WHERE name = 'ask'").all()).toEqual(
+      [],
+    );
+    expect(() => store.db.run("UPDATE tasks SET repo = NULL WHERE name = 'queued-one'")).toThrow();
+    expect(() => store.db.run("UPDATE tasks SET state = 'owner' WHERE name = 'queued-one'")).toThrow();
+    expect(store.db.query<{ foreign_keys: number }, []>("PRAGMA foreign_keys").get()?.foreign_keys).toBe(1);
+    expect(() => store.db.run("INSERT INTO task_after VALUES ('nobody', 'queued-one')")).toThrow();
+    removeTask(store, named("queued-one"));
+    expect(store.db.query("SELECT * FROM task_after").all()).toEqual([]);
+    closeStore(store);
   });
 
   test("puts a project, replacing its fields on an id it holds, reads and lists them by id", () => {
@@ -615,11 +644,11 @@ describe("the store", () => {
   test("refuses a store of another version and a file that is no store, leaving each as it was", () => {
     const newer = join(scratchDir(), "tasks.db");
     const db = new Database(newer);
-    db.run("PRAGMA user_version = 5");
+    db.run("PRAGMA user_version = 6");
     db.close();
     const bytes = readFileSync(newer);
     expect(() => openStore(newer, WAIT)).toThrow(
-      expect.objectContaining({ code: "store_version", meta: { path: newer, found: 5, expected: 4 } }),
+      expect.objectContaining({ code: "store_version", meta: { path: newer, found: 6, expected: 5 } }),
     );
     expect(() => readStore(newer, WAIT)).toThrow(expect.objectContaining({ code: "store_version" }));
     expect(readFileSync(newer).equals(bytes)).toBe(true);

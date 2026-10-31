@@ -1,7 +1,7 @@
 import { unreachable } from "./assert";
 import type { Health } from "./doctor";
-import type { OwnerItem, Project } from "./store";
-import type { Checked, Listed, Listing, OwnerGroup, StartedListing } from "./tasks";
+import type { Project } from "./store";
+import type { Checked, Listed, Listing, StartedListing } from "./tasks";
 
 export type View = "default" | "full";
 
@@ -62,24 +62,6 @@ function queuedRow(task: Checked, view: View) {
   }
 }
 
-function ownerRow(item: OwnerItem, view: View) {
-  switch (view) {
-    case "default":
-      return { name: item.name, project: item.project, ask: item.ask };
-    case "full":
-      return {
-        name: item.name,
-        project: item.project,
-        state: item.state,
-        priority: item.priority,
-        added: item.added,
-        ask: item.ask,
-      };
-    default:
-      return unreachable(view);
-  }
-}
-
 function startedCount(tasks: readonly Listed[]) {
   return {
     running: tasks.filter(({ state }) => state === "running").length,
@@ -91,25 +73,13 @@ export function startedListingView({ tasks }: StartedListing, view: View) {
   return { counts: startedCount(tasks), tasks: tasks.map((task) => startedRow(task, view)) };
 }
 
-export function listingView({ tasks, halt, ready, waiting, owner }: Listing, view: View) {
+export function listingView({ tasks, halt, ready, waiting }: Listing, view: View) {
   return {
-    counts: { ...startedCount(tasks), ready: ready.length, waiting: waiting.length, owner: owner.length },
+    counts: { ...startedCount(tasks), ready: ready.length, waiting: waiting.length },
     halt,
     tasks: tasks.map((task) => startedRow(task, view)),
     ready: ready.map((task) => queuedRow(task, view)),
     waiting: waiting.map((task) => queuedRow(task, view)),
-    owner: owner.map((item) => ownerRow(item, view)),
-  };
-}
-
-export function ownerView(groups: readonly OwnerGroup[], view: View) {
-  return {
-    counts: { owner: groups.reduce((sum, { items }) => sum + items.length, 0) },
-    owner: groups.map(({ project, name, items }) => ({
-      project,
-      name,
-      items: items.map((item) => ownerRow(item, view)),
-    })),
   };
 }
 

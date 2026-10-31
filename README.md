@@ -10,9 +10,8 @@ agent-task records each coding-agent task on this machine, with the repository i
 - `agent-task start <name>` runs a task from a brief, recording the brief's path and git blob sha and the session that started it; `review` marks it handed back for review, and `list` flags a brief that changed since.
 - `agent-task done <name>` removes a task however its work ended; whether the work landed is git's to show.
 - `agent-task project add <id>` adds a project, which a task can belong to, and `list --project <id>` shows that project's tasks alone.
-- `agent-task ask <name> "<text>"` queues an owner item, a question or a step only the owner can do; it is never started, `list` shows it apart from the ready and waiting tasks, and `done` closes it.
 - `agent-task halt "<reason>"` stops all agent work on this machine until the owner runs `agent-task resume`, and the plugin enforces it in every session.
-- The `cniska-task` Claude Code plugin tells every session that queued and running work lives in agent-task and puts every owner item in its context, grouped by project. Where the working directory holds a running or in-review task's brief, it adds every running and in-review task, each with whether its brief changed.
+- The `cniska-task` Claude Code plugin tells every session that queued and running work lives in agent-task. Where the working directory holds a running or in-review task's brief, it adds every running and in-review task, each with whether its brief changed.
 
 ## Install
 
@@ -63,12 +62,11 @@ agent-task is the record of the work on this machine, not an issue tracker such 
 | `agent-task add <name> --repo <path> --goal <text> [...]` | Queue a task, or replace a queued one |
 | `agent-task start <name> --repo <path> --brief <file> [...]` | Run a task, new or queued, from its brief |
 | `agent-task wait <name> [--after <name>]... [--waits <text>] [--until <command>]` | Replace what a task waits for |
-| `agent-task map <name> --project <id>` | Make a task or an owner item belong to a project |
-| `agent-task ask <name> <text> [...]` | Queue an owner item, or replace one |
+| `agent-task map <name> --project <id>` | Make a task belong to a project |
 | `agent-task review <name>` | Record that a running task was handed back for review |
-| `agent-task list [--started [--brief-under <dir>] \| --owner] [--project <id>] [--full]` | List the running and in-review tasks, then the queue, running each queued task's check, then the owner items; `--started` lists the started tasks alone, `--owner` the owner items alone by project, `--project` one project's, `--full` every field |
+| `agent-task list [--started [--brief-under <dir>]] [--project <id>] [--full]` | List the running and in-review tasks, then the queue, running each queued task's check; `--started` lists the started tasks alone, `--project` one project's tasks, `--full` every field |
 | `agent-task stop <name>` | Take a running or in-review task back to queued |
-| `agent-task done <name>` | Remove a task in any state, or close an owner item |
+| `agent-task done <name>` | Remove a task in any state |
 | `agent-task project add\|list\|remove` | Add or replace a project, list the projects, or remove one no task belongs to |
 | `agent-task halt <reason>` | Halt all agent work on this machine |
 | `agent-task resume` | Lift the halt |
