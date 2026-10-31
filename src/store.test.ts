@@ -474,6 +474,26 @@ describe("the store", () => {
     closeStore(store);
   });
 
+  test("refuses a version-3 store whose migration would leave an after row naming no task, rolling the migration back", () => {
+    const path = storeOf(VERSION_THREE);
+    const db = new Database(path);
+    db.run("INSERT INTO task_after VALUES ('nobody', 'queued-one')");
+    db.close();
+    expect(() => openStore(path, WAIT)).toThrow(
+      expect.objectContaining({ code: "migration_broken", kind: "fault", meta: { path } }),
+    );
+    const kept = new Database(path, { readonly: true });
+    expect(kept.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(3);
+    expect(kept.query("SELECT name FROM sqlite_master WHERE name IN ('projects', 'tasks_v4')").all()).toEqual(
+      [],
+    );
+    expect(kept.query("SELECT task FROM task_after").all()).toEqual([
+      { task: "queued-one" },
+      { task: "nobody" },
+    ]);
+    kept.close();
+  });
+
   test("puts an owner item, replacing its project, priority and text on its name and keeping its time, and returns null for a task's name", () => {
     const store = freshStore();
     putProject(store, PROJECT);
