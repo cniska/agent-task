@@ -1,19 +1,22 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { decode } from "@toon-format/toon";
 import {
   binWith,
   brief,
+  compiledBinary,
   listing,
+  packageVersion,
   type Ran,
   refusal,
   removeScratchDirs,
   repo,
   result,
   run,
+  runProgram,
   type World,
   world,
 } from "./harness";
@@ -344,3 +347,47 @@ test("AC-40 the session hook puts a raised halt and its reason before the note, 
   result(run(w, w.root, ["resume"]));
   expect(sessionStart(w, bin, w.root)).toEqual(NOTED);
 });
+
+const BUILD_TIMEOUT_MS = 60_000;
+
+const OFF_SWITCH = "AGENT_TASK_NO_UPDATE_CHECK";
+
+test(
+  "AC-48 with the curl install on PATH knowing of a newer version, the session hook and the tool hook print what they print without it, halt refusals included",
+  () => {
+    const w = world();
+    const home = w.env.HOME ?? "";
+    const installed = join(home, ".local", "bin", "agent-task");
+    mkdirSync(dirname(installed), { recursive: true });
+    copyFileSync(compiledBinary(w, join(w.root, "build")), installed);
+    const stateFile = join(w.env.XDG_STATE_HOME ?? "", "agent-task", "update-check.json");
+    mkdirSync(dirname(stateFile), { recursive: true });
+    writeFileSync(
+      stateFile,
+      JSON.stringify({ checked: new Date().toISOString(), latest: { curl: "99.0.0" } }),
+    );
+    const live: World = {
+      root: w.root,
+      env: Object.fromEntries(Object.entries(w.env).filter(([name]) => name !== OFF_SWITCH)),
+    };
+    const path = `${binWith(w, ON_PATH, false)}:${dirname(installed)}`;
+    const halted = (as: World): Ran => runProgram(as, w.root, installed, ["halted"]);
+
+    expect(halted(live).stderr).toStartWith("agent-task 99.0.0 is out");
+    expect(sessionStart(live, path, w.root)).toEqual(NOTED);
+    expect(toolCall(live, path, "Edit", EDIT)).toEqual(PASSED);
+
+    result(run(w, w.root, ["halt", REASON]));
+    const quiet = halted(w).stderr;
+    expect(halted(live).stderr).toBe(
+      `agent-task 99.0.0 is out (running ${packageVersion()}): run curl -fsSL https://github.com/cniska/agent-task/releases/latest/download/install.sh | sh; if you cannot, tell the user.\n${quiet}`,
+    );
+    expect(sessionStart(live, path, w.root)).toEqual({
+      exitCode: 0,
+      stdout: `${HALT_HEADING}\n${quiet}\n${NOTE}`,
+      stderr: "",
+    });
+    refused(toolCall(live, path, "Edit", EDIT), quiet);
+  },
+  BUILD_TIMEOUT_MS,
+);

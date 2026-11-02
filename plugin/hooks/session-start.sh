@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
+export AGENT_TASK_NO_UPDATE_CHECK=1
+
 readonly UNREAD="the session was not told which tasks are running or in review"
 readonly HALTED=1
 readonly UNCHECKED="cniska-task: agent-task could not say whether agent work on this machine is halted, so this session's edits, shell commands and agents go unchecked against a halt."

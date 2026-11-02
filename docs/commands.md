@@ -2,7 +2,7 @@
 
 The `agent-task` commands, their flags and output, and the store they read and write. [`SPEC.md`](../SPEC.md) states what must hold.
 
-Each command prints [TOON](https://toonformat.dev): a result on stdout, or an error on stderr naming the act that resolves it, each beside the command's name and `ok`.
+Each command prints [TOON](https://toonformat.dev): a result on stdout, or an error on stderr naming the act that resolves it, each beside the command's name and `ok`. The [update line](#the-update-check) may come before either, on stderr.
 
 | Command | Does |
 | --- | --- |
@@ -44,7 +44,7 @@ Each command prints [TOON](https://toonformat.dev): a result on stdout, or an er
 - A task waits after a name only while the store holds it: `done` frees what waited after the name, and `add` of the name again blocks them again.
 - `waits` is text for the listing and stops nothing.
 - `until` is a shell command recorded as given. `list` runs it as `/bin/sh -c` in the task's repository, under the time limit [SPEC FR-33](../SPEC.md) sets, and `list --full` prints the result as `untilState`: `met` on exit 0, `unmet` on exit 1 through 125, `timed_out`, or `failed` on exit 126 and up, a signal, or a repository that is gone. A task waiting after no held name is ready when its check is met, whatever its `waits`, or when it has no check and no `waits`. `start` drops the check with the task's `after`, and `stop` returns the task to the queue with neither.
-- `doctor` contacts no remote and reads no origin.
+- `doctor` contacts no git remote and reads no origin.
 
 ## Projects
 
@@ -62,6 +62,23 @@ A project groups tasks, so `list --project <id>` shows one project's work alone.
 - **Reported**: `list` prints `halt` after `counts`, as `none`, `raised` with its reason and time, or `unreadable`.
 - **Unreadable**: a record that is not a file, or not JSON of a reason and a time, counts as raised. `resume` removes it; one it cannot remove, such as a directory, is refused `halt_unremovable` and stays.
 - **In sessions**: the plugin refuses edits, shell commands and agents while a halt is raised, as [the plugin doc](plugin.md#the-halt) says.
+
+## The update check
+
+agent-task tells the agent running it when a newer release is out on the channel it was installed through. Before any command, it prints one line on stderr, then the command's own output:
+
+```text
+agent-task 0.3.1 is out (running 0.3.0): run brew upgrade agent-task; if you cannot, tell the user.
+```
+
+- **Channel**: read from where the binary sits, through Homebrew, npm, Bun or the curl installer. A checkout's or a hand-placed binary is on no channel and never checks.
+- **Latest**: what that channel serves: the tap's formula, the npm registry's `latest` tag, or the latest GitHub release.
+- **Once a day**: agent-task asks at most once a day, for up to a second. A check that fails or times out counts as that day's check and adds no line of its own; a newer version already known still prints.
+- **Every command**: the line prints on each command while the latest version known is newer, whether or not that command asked.
+- **Unchanged**: stdout and the exit code are as they would be without the line.
+- **Off**: no check runs and no line prints while `CI` or `AGENT_TASK_NO_UPDATE_CHECK` is set and not blank. The plugin's hooks set the second.
+
+The check keeps the time it asked and each channel's latest version in `$XDG_STATE_HOME/agent-task/update-check.json` (`~/.local/state/agent-task/update-check.json` by default).
 
 ## The store
 

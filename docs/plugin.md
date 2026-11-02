@@ -21,6 +21,8 @@ While a halt is raised, as `agent-task halted` reports it, the plugin stops the 
 
 The hooks decide on `halted`'s exit status alone, and let calls through when they cannot ask it. When `agent-task` is missing or fails `--version`, session start prints only a line saying the halt could not be checked; when it is too old to know `halted`, that line comes before the note.
 
+The hooks export `AGENT_TASK_NO_UPDATE_CHECK`, so agent-task's [update line](commands.md#the-update-check) never enters what they capture and show, a halt refusal included.
+
 ## Install
 
 The plugin brings neither Bun nor the CLI. Install the CLI first, as the [README](../README.md#install) says; the plugin checks nothing until `agent-task` is on the `PATH` Claude Code starts with. Its hooks also need `jq`.

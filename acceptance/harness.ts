@@ -59,6 +59,7 @@ export function world(): World {
       GIT_AUTHOR_EMAIL: "author@example.test",
       GIT_COMMITTER_NAME: "Test Author",
       GIT_COMMITTER_EMAIL: "author@example.test",
+      AGENT_TASK_NO_UPDATE_CHECK: "1",
     },
   };
 }

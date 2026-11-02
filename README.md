@@ -49,6 +49,10 @@ Then install the Claude Code plugin:
 claude plugin install cniska-task@cniska
 ```
 
+### Updates
+
+When a newer release is out on its channel, every `agent-task` command prints one line on stderr naming that channel's upgrade, such as `agent-task 0.3.1 is out (running 0.3.0): run brew upgrade agent-task; if you cannot, tell the user.` Set `AGENT_TASK_NO_UPDATE_CHECK=1` to turn the check off; it is also off while `CI` is set and not blank. [The update check](docs/commands.md#the-update-check) has the details.
+
 ## Why
 
 Agents running in parallel on one machine need one record of which task each is on, which work came back for review and what waits to start next. A brief edited while its task runs leaves the agent working from instructions no one can see anymore, so agent-task records the brief's sha when the task starts and `list` flags `briefChanged` once the brief no longer has it.

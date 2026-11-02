@@ -21,6 +21,7 @@ mise trust && mise install
 
 - `bun run check` runs lint, typecheck, knip and the tests. Lint is oxlint with type information, `oxfmt --check` and actionlint over the workflows; `bun run format` formats with oxfmt, and the format gate runs it before each commit.
 - `bun run acceptance` runs the acceptance suite. Each acceptance test gets 20 seconds rather than Bun's default 5, since one drives git and the CLI many times and under heavy load took longer than 5; the release criteria, which compile the binary, set their own 60.
+- No test asks a release channel: `src/test-env.ts` and the acceptance harness set `AGENT_TASK_NO_UPDATE_CHECK`, the unit tests pass in a stand-in fetch, and AC-47 and AC-48 run over a state file checked that day.
 - `npm/agent-task` is the npm package's launcher, a POSIX shell script `scripts/build-npm.ts` fills with the release builds; `scripts/launcher.test.ts`, in the check, runs it over the layouts `npm` and `bun` install, with no runtime on `PATH`.
 
 ## Release scripts

@@ -6,11 +6,11 @@ Flat, so a module is found by name. A file's prefix is its module: `cli-output.t
 
 | File | Holds |
 | --- | --- |
-| `cli.ts` | The entry: read the command line and the environment, run the command, print its result or refusal and set the exit code |
+| `cli.ts` | The entry: read the command line and the environment, run the update check, run the command, print its result or refusal and set the exit code |
 | `cli-commands.ts` | Every command: parse its arguments, call the domain, return its result |
 | `cli-contract.ts` | What a command is, and the usage errors |
 | `cli-views.ts` | What `list`, `project list` and `doctor` print: the `counts` leading each, then `list`'s fields and `doctor`'s checks by default or with `--full` |
-| `cli-output.ts` | Writing the result as TOON to stdout and the error to stderr, and exiting |
+| `cli-output.ts` | Writing the update line and the error to stderr and the result as TOON to stdout, and exiting |
 
 Another module reaches a module only through its bare-named file, so `cli`'s parts are its own and no module imports the entry. Only the entry reads the environment; it passes what the rest needs. Only `git` and `until` start a process; among the tests, only `cli.test.ts`, which holds the one CLI runner, and the repo fixtures do. A module makes no error but a `CodedError`, and every `switch` ends in a `default` that calls `unreachable`. [`modules.test.ts`](modules.test.ts) holds each of these, and reads the table below for the modules.
 
@@ -27,7 +27,8 @@ Another module reaches a module only through its bare-named file, so `cli`'s par
 | `git` | Run git and read what it prints: a path's main working tree and a file's blob sha |
 | `until` | Run a queued task's check, `/bin/sh -c` of the command in the task's repository with the timeout passed in, and say whether it was met, unmet, timed out or failed |
 | `doctor` | `doctor`: what agent-task and its plugin need, judged from the store and its version, each task's repository, each running or in-review task's brief, each plan a task names, git and the directories on `PATH`, each check with its state and fix; it writes no task and no schema |
-| `paths` | The data directory, the store's path and the halt's, from the environment the entry passes in |
+| `update` | The update check: the channel agent-task was installed through, read from its binary's real path; that channel's latest version, asked at most once a day under a time limit the entry sets and kept in a state file; and the line naming the upgrade when a newer one is out; a check that fails adds no line of its own and throws nothing |
+| `paths` | The data directory, the store's path and the halt's, and the update check's state and the curl install's path, from the environment the entry passes in |
 | `file` | `permits`: whether a path is a file this process may open with a given access mode |
 | `coded-error` | Usage errors, refusals and faults with a code, their facts and the act that resolves them, and the exit status of each kind |
 | `assert` | `unreachable` and `invariant`, faults that name a bug |

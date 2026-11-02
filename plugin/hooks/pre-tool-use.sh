@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
+export AGENT_TASK_NO_UPDATE_CHECK=1
+
 readonly HALTED=1
 readonly REFUSED=2
 readonly ONLY_AGENT_TASK='^[[:blank:]]*agent-task([[:blank:]][^;&|<>$`(){}\\[:cntrl:]]*)?$'

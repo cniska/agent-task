@@ -22,6 +22,7 @@ process.env.GIT_AUTHOR_NAME = "T";
 process.env.GIT_AUTHOR_EMAIL = "t@example.com";
 process.env.GIT_COMMITTER_NAME = "T";
 process.env.GIT_COMMITTER_EMAIL = "t@example.com";
+process.env.AGENT_TASK_NO_UPDATE_CHECK = "1";
 
 const scratchHome = realpathSync(mkdtempSync(join(tmpdir(), "agent-task-home-")));
 

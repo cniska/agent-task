@@ -7,6 +7,10 @@ const STDOUT = 1;
 
 const STDERR = 2;
 
+export function writeNotice(line: string): void {
+  writeSync(STDERR, `${line}\n`);
+}
+
 export function exitWithResult(command: string, value: unknown, status: ResultStatus): never {
   writeSync(STDOUT, `${encode({ command, ok: true, result: value ?? null })}\n`);
   return process.exit(status);

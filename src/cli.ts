@@ -3,7 +3,9 @@ import { resolve } from "node:path";
 import { version } from "../package.json";
 import { COMMANDS } from "./cli-commands";
 import { type Command, type Outcome, type Runtime, usageError } from "./cli-contract";
-import { exitWithError, exitWithResult, exitWithVersion } from "./cli-output";
+import { exitWithError, exitWithResult, exitWithVersion, writeNotice } from "./cli-output";
+import { curlInstallPath, updateCheckPath } from "./paths";
+import { installChannel, updateNotice } from "./update";
 
 const PROGRAM = "agent-task";
 
@@ -16,6 +18,8 @@ const LIVE_VIEW = "list";
 const BUSY_WAIT_MS = 5000;
 
 const UNTIL_TIMEOUT_MS = 5000;
+
+const UPDATE_CHECK_TIMEOUT_MS = 1000;
 
 const FLAGS = [
   { name: HELP_FLAG, usage: `${PROGRAM} ${HELP_FLAG}`, summary: "list the commands and flags" },
@@ -35,13 +39,36 @@ function searchPath(value: string | undefined, cwd: string): readonly string[] {
 
 const runtime: Runtime = {
   cwd: process.cwd(),
-  env: { home: blankToNull(process.env.HOME), dataHome: blankToNull(process.env.XDG_DATA_HOME) },
+  env: {
+    home: blankToNull(process.env.HOME),
+    dataHome: blankToNull(process.env.XDG_DATA_HOME),
+    stateHome: blankToNull(process.env.XDG_STATE_HOME),
+  },
   processEnv: process.env,
   searchPath: searchPath(process.env.PATH, process.cwd()),
   busyWaitMs: BUSY_WAIT_MS,
   untilTimeoutMs: UNTIL_TIMEOUT_MS,
   now: () => new Date(),
 };
+
+const updateCheckOff =
+  blankToNull(process.env.CI) !== null || blankToNull(process.env.AGENT_TASK_NO_UPDATE_CHECK) !== null;
+
+const channel = updateCheckOff ? null : installChannel(process.execPath, curlInstallPath(runtime.env));
+
+const notice =
+  channel === null
+    ? null
+    : await updateNotice({
+        version,
+        channel,
+        statePath: updateCheckPath(runtime.env),
+        now: runtime.now(),
+        timeoutMs: UPDATE_CHECK_TIMEOUT_MS,
+        fetch,
+      });
+
+if (notice !== null) writeNotice(notice);
 
 const [requested = LIVE_VIEW, ...args] = process.argv.slice(2);
 
