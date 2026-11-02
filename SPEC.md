@@ -14,6 +14,8 @@ A task can belong to a project, added explicitly with its readable name, its rep
 
 `doctor` reports what agent-task and its plugin need in order to work, with a fix for each failure.
 
+Before each command, agent-task tells the agent running it when a newer release is out on the channel it was installed through, naming that channel's upgrade. It asks the channel at most once a day.
+
 `halt` stops all agent work on the machine until the owner runs `resume`. While a halt is raised, agent-task refuses to queue, start, change what a task waits for or its priority, or change a project, and the plugin refuses each session's edits, shell commands and agents, so stopping depends on no agent remembering a rule.
 
 The `cniska-task` Claude Code plugin tells every session that queued and running work lives in agent-task. Where the session's working directory holds the brief of a running or in-review task, it adds those tasks, each with whether its brief changed.
@@ -135,7 +137,7 @@ The `cniska-task` Claude Code plugin tells every session that queued and running
 ## 3. Non-functional requirements
 
 - **NF-1** — The tests never read or write the real home: `HOME` and the XDG directories point at scratch directories.
-- **NF-2** — Every command reads the store, the filesystem and git afresh; nothing is remembered between commands.
+- **NF-2** — Every command reads the store, the filesystem and git afresh. Only the update check keeps a result between commands: the time it asked and the latest version of each channel, in `update-check.json` (FR-51).
 - **NF-3** — Every command of the CLI, run from a checkout or as the release binary, runs with git as the only program on `PATH`; a queued task's check runs under `/bin/sh` by its absolute path. The npm package's launcher also needs a POSIX shell and the system's `uname`, `readlink`, `dirname` and `sed` on `PATH`.
 
 ## 4. Out of scope
