@@ -224,6 +224,7 @@ test("AC-6 start refuses a running name, naming what it admits, starts a stopped
       admits: [
         "agent-task wait running-one [--after <name>]... [--waits <text>] [--until <command>]",
         "agent-task map running-one --project <id>",
+        "agent-task priority running-one urgent|high|medium|low|none",
         "agent-task review running-one",
         "agent-task stop running-one",
         "agent-task done running-one",
@@ -330,6 +331,7 @@ test("AC-9 stop takes a running task back to queued and done removes a task in e
         "agent-task add task-a --repo <path> --goal <text> [--project <id>] [--plan <file>] [--priority urgent|high|medium|low] [--after <name>]... [--waits <text>] [--until <command>]",
         "agent-task wait task-a [--after <name>]... [--waits <text>] [--until <command>]",
         "agent-task map task-a --project <id>",
+        "agent-task priority task-a urgent|high|medium|low|none",
         "agent-task start task-a --repo <path> --brief <file> [--project <id>] [--session <id>]",
         "agent-task done task-a",
       ],
@@ -511,6 +513,55 @@ test("AC-12 wait replaces what a task waits after and for and its check, clears 
   expect(listed(w)).toEqual([listedAs({ ...running, waits: "a review" }, false)]);
 });
 
+test("AC-49 priority sets or clears a task's priority in any state keeping every other field, stop keeps it, and an unknown name, an invalid name and a level outside the five are refused, recording nothing", () => {
+  const w = world();
+  const dir = repo(w);
+  result(add(w, "task-b", dir, "b"));
+  const queued = result(
+    add(
+      w,
+      "task-a",
+      dir,
+      "a",
+      "--priority",
+      "low",
+      "--after",
+      "task-b",
+      "--waits",
+      "one",
+      "--until",
+      "exit 0",
+    ),
+  );
+  expect(result(run(w, w.root, ["priority", "task-a", "urgent"]))).toEqual({ ...queued, priority: "urgent" });
+  expect(waiting(w)).toEqual([{ ...queued, priority: "urgent", untilState: "met" }]);
+  expect(result(run(w, w.root, ["priority", "task-a", "none"]))).toEqual({ ...queued, priority: null });
+  const running = result(start(w, "task-c", dir, brief(w.root)));
+  expect(result(run(w, w.root, ["priority", "task-c", "high"]))).toEqual({ ...running, priority: "high" });
+  const reviewed = result(run(w, w.root, ["review", "task-c"]));
+  expect(result(run(w, w.root, ["priority", "task-c", "medium"]))).toEqual({
+    ...reviewed,
+    priority: "medium",
+  });
+  expect(result(run(w, w.root, ["stop", "task-c"]))).toMatchObject({ state: "queued", priority: "medium" });
+  expect(refusal(run(w, w.root, ["priority", "task-z", "high"]))).toMatchObject({
+    code: "unknown_task",
+    meta: { name: "task-z", act: "priority" },
+  });
+  expect(refusal(run(w, w.root, ["priority", "Task-A", "high"]))).toMatchObject({ code: "invalid_name" });
+  const before = run(w, w.root, ["list", "--full"]).stdout;
+  for (const args of [
+    ["priority", "task-a", "top"],
+    ["priority", "task-a"],
+    ["priority", "task-a", "high", "low"],
+  ]) {
+    const misused = run(w, w.root, args);
+    expect([misused.exitCode, misused.stdout]).toEqual([2, ""]);
+    expect(decode(misused.stderr)).toMatchObject({ error: { kind: "usage", code: "bad_arguments" } });
+  }
+  expect(run(w, w.root, ["list", "--full"]).stdout).toBe(before);
+});
+
 test("AC-13 start of a queued task is refused blocked while a name it waits after is held, and once each is done runs it keeping its goal, plan, priority, waits and added time, waiting after nothing and with no check", () => {
   const w = world();
   const dir = repo(w);
@@ -611,6 +662,7 @@ test("AC-15 review takes a running task to review with the time, keeps it listed
       admits: [
         "agent-task wait task-a [--after <name>]... [--waits <text>] [--until <command>]",
         "agent-task map task-a --project <id>",
+        "agent-task priority task-a urgent|high|medium|low|none",
         "agent-task stop task-a",
         "agent-task done task-a",
       ],

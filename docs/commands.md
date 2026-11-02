@@ -10,6 +10,7 @@ Each command prints [TOON](https://toonformat.dev): a result on stdout, or an er
 | `agent-task start <name> --repo <path> --brief <file> [--project <id>] [--session <id>]` | Run a task, new or queued, recording its repository, its brief with the brief's sha, the session and, when given, its project; refused `blocked` while a task it waits after is still held |
 | `agent-task wait <name> [--after <name>]... [--waits <text>] [--until <command>]` | Replace what a task waits for: tasks to land and a check that says the wait is met, on a queued task, and anything else as text; with none of the three, clear all three |
 | `agent-task map <name> --project <id>` | Make a task in any state belong to a project the store holds |
+| `agent-task priority <name> urgent\|high\|medium\|low\|none` | Set the priority of a task in any state, or with `none` clear it, keeping every other field |
 | `agent-task review <name>` | Record that a running task was handed back for review; its brief and brief sha stay recorded until `stop` or `done` |
 | `agent-task list [--started [--brief-under <dir>]] [--project <id>] [--full]` | List the running and in-review tasks, oldest started first, flagging each whose brief changed since it started; then the queued tasks `ready` to start and those `waiting`, each by priority, added time and name, running each one's check, whose result `--full` prints as `untilState`. With `--started`, print `counts` and `tasks` alone, reading no queued task and running no check; adding `--brief-under <dir>`, print them only when one's brief sits under that directory, and otherwise refuse `no_brief_under`. With `--project`, list only that project's tasks |
 | `agent-task stop <name>` | Take a running or in-review task back to queued, forgetting its brief, session and review time and keeping its goal, plan, priority and waits |
@@ -58,7 +59,7 @@ A project groups tasks, so `list --project <id>` shows one project's work alone.
 
 `agent-task halt "<reason>"` stops all agent work on this machine until the owner runs `agent-task resume`. Anyone may raise it; only the owner lifts it.
 
-- **While raised**: `add`, `start`, `wait`, `map`, `project add` and `project remove` are refused `halted`, naming the reason and `resume`; the other commands work.
+- **While raised**: `add`, `start`, `wait`, `map`, `priority`, `project add` and `project remove` are refused `halted`, naming the reason and `resume`; the other commands work.
 - **Reported**: `list` prints `halt` after `counts`, as `none`, `raised` with its reason and time, or `unreadable`.
 - **Unreadable**: a record that is not a file, or not JSON of a reason and a time, counts as raised. `resume` removes it; one it cannot remove, such as a directory, is refused `halt_unremovable` and stays.
 - **In sessions**: the plugin refuses edits, shell commands and agents while a halt is raised, as [the plugin doc](plugin.md#the-halt) says.

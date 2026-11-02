@@ -3,6 +3,7 @@ export const USAGE = {
   start: "agent-task start <name> --repo <path> --brief <file> [--project <id>] [--session <id>]",
   wait: "agent-task wait <name> [--after <name>]... [--waits <text>] [--until <command>]",
   map: "agent-task map <name> --project <id>",
+  priority: "agent-task priority <name> urgent|high|medium|low|none",
   review: "agent-task review <name>",
   list: "agent-task list [--started [--brief-under <dir>]] [--project <id>] [--full]",
   stop: "agent-task stop <name>",

@@ -14,6 +14,7 @@ import {
   listStarted,
   listStartedUnder,
   map,
+  prioritize,
   review,
   start,
   stop,
@@ -306,13 +307,14 @@ describe("start", () => {
           admits: [
             "agent-task wait running-one [--after <name>]... [--waits <text>] [--until <command>]",
             "agent-task map running-one --project <id>",
+            "agent-task priority running-one urgent|high|medium|low|none",
             "agent-task review running-one",
             "agent-task stop running-one",
             "agent-task done running-one",
           ],
         },
         resolve:
-          "running-one is running, which admits: agent-task wait running-one [--after <name>]... [--waits <text>] [--until <command>]; agent-task map running-one --project <id>; agent-task review running-one; agent-task stop running-one; agent-task done running-one",
+          "running-one is running, which admits: agent-task wait running-one [--after <name>]... [--waits <text>] [--until <command>]; agent-task map running-one --project <id>; agent-task priority running-one urgent|high|medium|low|none; agent-task review running-one; agent-task stop running-one; agent-task done running-one",
       }),
     );
     expect(taskByName(ctx.store, named("running-one"))).toEqual(task);
@@ -381,6 +383,7 @@ describe("review", () => {
           admits: [
             "agent-task wait task-a [--after <name>]... [--waits <text>] [--until <command>]",
             "agent-task map task-a --project <id>",
+            "agent-task priority task-a urgent|high|medium|low|none",
             "agent-task stop task-a",
             "agent-task done task-a",
           ],
@@ -567,6 +570,7 @@ describe("stop", () => {
             "agent-task add task-a --repo <path> --goal <text> [--project <id>] [--plan <file>] [--priority urgent|high|medium|low] [--after <name>]... [--waits <text>] [--until <command>]",
             "agent-task wait task-a [--after <name>]... [--waits <text>] [--until <command>]",
             "agent-task map task-a --project <id>",
+            "agent-task priority task-a urgent|high|medium|low|none",
             "agent-task start task-a --repo <path> --brief <file> [--project <id>] [--session <id>]",
             "agent-task done task-a",
           ],
@@ -708,8 +712,44 @@ describe("projects", () => {
   });
 });
 
+describe("priority", () => {
+  test("sets or clears the priority of a task in any state, keeping every other field", () => {
+    const ctx = context();
+    addedProject(ctx, "site");
+    added(ctx, "task-b");
+    const { task } = added(ctx, "task-a", {
+      project: "site",
+      priority: "low",
+      after: ["task-b"],
+      waits: "the owner",
+      until: "exit 0",
+    });
+    expect(prioritize(ctx, "task-a", "urgent")).toEqual({ ...task, priority: "urgent" });
+    expect(prioritize(ctx, "task-a", null)).toEqual({ ...task, priority: null });
+    expect(taskByName(ctx.store, named("task-a"))).toEqual({ ...task, priority: null });
+    const running = started(ctx, "task-c").task;
+    expect(prioritize(ctx, "task-c", "high")).toEqual({ ...running, priority: "high" });
+    const inReview = review(ctx, "task-c");
+    expect(prioritize(ctx, "task-c", "medium")).toEqual({ ...inReview, priority: "medium" });
+    expect(stop(ctx, "task-c")).toMatchObject({ state: "queued", priority: "medium" });
+  });
+
+  test("refuses a name the store does not hold and an invalid name, recording nothing", () => {
+    const ctx = context();
+    const { task } = added(ctx, "task-a");
+    expect(() => prioritize(ctx, "task-z", "high")).toThrow(
+      expect.objectContaining({ code: "unknown_task", meta: { name: "task-z", act: "priority" } }),
+    );
+    expect(() => prioritize(ctx, "Task-A", "high")).toThrow(
+      expect.objectContaining({ code: "invalid_name", meta: { name: "Task-A" } }),
+    );
+    expect(taskByName(ctx.store, named("task-z"))).toBeNull();
+    expect(taskByName(ctx.store, named("task-a"))).toEqual(task);
+  });
+});
+
 describe("a halt", () => {
-  test("refuses add, start, wait and map while raised, recording nothing, lists the halt, and admits them again once lifted", () => {
+  test("refuses add, start, wait, map and priority while raised, recording nothing, lists the halt, and admits them again once lifted", () => {
     const ctx = context();
     const queued = added(ctx, "task-a");
     addedProject(ctx, "site");
@@ -727,6 +767,7 @@ describe("a halt", () => {
     ).toThrow(halted);
     expect(() => wait(ctx, { name: "task-a", after: [], waits: null, until: "exit 0" })).toThrow(halted);
     expect(() => map(ctx, "task-a", "site")).toThrow(halted);
+    expect(() => prioritize(ctx, "task-a", "urgent")).toThrow(halted);
     expect(list(ctx, null)).toEqual(before);
     liftHalt(ctx.haltPath);
     expect(list(ctx, null).halt).toEqual({ state: "none" });

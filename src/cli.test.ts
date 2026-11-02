@@ -35,6 +35,7 @@ describe("the cli", () => {
           "start",
           "wait",
           "map",
+          "priority",
           "review",
           "list",
           "stop",
@@ -106,10 +107,10 @@ describe("the cli", () => {
         meta: {
           name: "frobnicate",
           usage:
-            "agent-task add|start|wait|map|review|list|stop|done|project|halt|resume|halted|doctor|--help|--version",
+            "agent-task add|start|wait|map|priority|review|list|stop|done|project|halt|resume|halted|doctor|--help|--version",
         },
         resolve:
-          "agent-task add|start|wait|map|review|list|stop|done|project|halt|resume|halted|doctor|--help|--version",
+          "agent-task add|start|wait|map|priority|review|list|stop|done|project|halt|resume|halted|doctor|--help|--version",
       },
     });
   });

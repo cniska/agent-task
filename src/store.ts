@@ -659,6 +659,18 @@ export function removeTask(store: Store, name: TaskName): Task | null {
   });
 }
 
+export function setPriority(store: Store, name: TaskName, priority: Priority | null): Task | null {
+  const { db } = store;
+  return immediately(store, () => {
+    const row = db
+      .query<unknown, [Priority | null, string]>(
+        `UPDATE tasks SET priority = ? WHERE name = ? RETURNING ${TASK_COLUMNS}`,
+      )
+      .get(priority, name);
+    return row === null ? null : parseTask(row, afterOf(db, name));
+  });
+}
+
 export function setProject(store: Store, name: TaskName, project: ProjectId): Task | null {
   const { db } = store;
   return immediately(store, () => {

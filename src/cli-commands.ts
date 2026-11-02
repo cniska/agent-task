@@ -17,6 +17,7 @@ import {
   listStarted,
   listStartedUnder,
   map,
+  prioritize,
   review,
   start,
   stop,
@@ -217,6 +218,31 @@ const mapCommand: Command = {
   },
 };
 
+const CLEARED = "none";
+
+function nameAndPriority(command: Command, positionals: readonly string[]): [string, Priority | null] {
+  const [name, level, ...rest] = positionals;
+  if (name === undefined || level === undefined || rest.length > 0)
+    refuseArguments(
+      command,
+      `takes one task name and one priority, and got: ${positionals.join(" ") || "none"}`,
+    );
+  if (level === CLEARED) return [name, null];
+  if (!isPriority(level))
+    refuseArguments(command, `the priority is urgent, high, medium, low or none, not ${level}`);
+  return [name, level];
+}
+
+const priorityCommand: Command = {
+  name: "priority",
+  usage: USAGE.priority,
+  summary: "set the priority of a task in any state, or with none clear it, keeping every other field",
+  run(args, runtime) {
+    const [name, priority] = nameAndPriority(this, parsed(this, args, {}).positionals);
+    return withContext(runtime, (context) => prioritize(context, name, priority));
+  },
+};
+
 const reviewCommand: Command = {
   name: "review",
   usage: USAGE.review,
@@ -350,7 +376,7 @@ const haltCommand: Command = {
   name: "halt",
   usage: HALT_USAGE.halt,
   summary:
-    "halt all agent work on this machine, recording the reason, until the owner runs resume; while a halt is raised, add, start, wait, map, project add and project remove are refused, and so are the plugin's gated tools; on a raised halt, print it unchanged",
+    "halt all agent work on this machine, recording the reason, until the owner runs resume; while a halt is raised, add, start, wait, map, priority, project add and project remove are refused, and so are the plugin's gated tools; on a raised halt, print it unchanged",
   run(args, runtime) {
     const reason = oneReason(this, parsed(this, args, {}).positionals);
     return { value: { halt: raiseHalt(haltPath(runtime.env), reason, runtime.now()) }, status: 0 };
@@ -383,6 +409,7 @@ export const COMMANDS: readonly Command[] = [
   startCommand,
   waitCommand,
   mapCommand,
+  priorityCommand,
   reviewCommand,
   listCommand,
   stopCommand,

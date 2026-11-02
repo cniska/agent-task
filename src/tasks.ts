@@ -22,6 +22,7 @@ import {
   reviewTask,
   type Started,
   type Store,
+  setPriority,
   setProject,
   setWaiting,
   startedTasks,
@@ -44,18 +45,22 @@ export type Context = {
 
 type State = Task["state"];
 
-type Act = "add" | "start" | "wait" | "map" | "review" | "stop" | "done";
+type Act = "add" | "start" | "wait" | "map" | "priority" | "review" | "stop" | "done";
 
 function admitted(name: string, state: State): readonly string[] {
   switch (state) {
     case "queued":
-      return [USAGE.add, USAGE.wait, USAGE.map, USAGE.start, USAGE.done].map((usage) => actFor(usage, name));
+      return [USAGE.add, USAGE.wait, USAGE.map, USAGE.priority, USAGE.start, USAGE.done].map((usage) =>
+        actFor(usage, name),
+      );
     case "running":
-      return [USAGE.wait, USAGE.map, USAGE.review, USAGE.stop, USAGE.done].map((usage) =>
+      return [USAGE.wait, USAGE.map, USAGE.priority, USAGE.review, USAGE.stop, USAGE.done].map((usage) =>
         actFor(usage, name),
       );
     case "review":
-      return [USAGE.wait, USAGE.map, USAGE.stop, USAGE.done].map((usage) => actFor(usage, name));
+      return [USAGE.wait, USAGE.map, USAGE.priority, USAGE.stop, USAGE.done].map((usage) =>
+        actFor(usage, name),
+      );
     default:
       return unreachable(state);
   }
@@ -230,6 +235,14 @@ export function map({ store, haltPath }: Context, raw: string, rawProject: strin
   const mapped = setProject(store, name, parseProjectId(rawProject));
   if (mapped === null) throw refuse("unknown_task", { name, act: "map" });
   return mapped;
+}
+
+export function prioritize({ store, haltPath }: Context, raw: string, priority: Priority | null): Task {
+  refuseWhileHalted(haltPath);
+  const name = parseName(raw);
+  const prioritized = setPriority(store, name, priority);
+  if (prioritized === null) throw refuse("unknown_task", { name, act: "priority" });
+  return prioritized;
 }
 
 export function review({ store, now }: Context, raw: string): InReview {

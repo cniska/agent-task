@@ -67,6 +67,7 @@ agent-task is the record of the work on this machine, not an issue tracker such 
 | `agent-task start <name> --repo <path> --brief <file> [...]` | Run a task, new or queued, from its brief |
 | `agent-task wait <name> [--after <name>]... [--waits <text>] [--until <command>]` | Replace what a task waits for |
 | `agent-task map <name> --project <id>` | Make a task belong to a project |
+| `agent-task priority <name> urgent\|high\|medium\|low\|none` | Set or clear a task's priority |
 | `agent-task review <name>` | Record that a running task was handed back for review |
 | `agent-task list [--started [--brief-under <dir>]] [--project <id>] [--full]` | List the running and in-review tasks, then the queue, running each queued task's check; `--started` lists the started tasks alone, `--project` one project's tasks, `--full` every field |
 | `agent-task stop <name>` | Take a running or in-review task back to queued |

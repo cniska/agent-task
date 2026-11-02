@@ -11,7 +11,7 @@ const REASON = "a flaw in the workflow";
 const OWNER_RESUMES =
   "make no change: state your report and stop; only the owner lifts the halt, with agent-task resume";
 
-test("AC-38 halt stops add, start and wait until resume lifts it, halted and list report it, and a record that cannot be read counts as raised", () => {
+test("AC-38 halt stops add, start, wait and priority until resume lifts it, halted and list report it, and a record that cannot be read counts as raised", () => {
   const w = world();
   const dir = repo(w);
   const file = brief(dir);
@@ -39,6 +39,7 @@ test("AC-38 halt stops add, start and wait until resume lifts it, halted and lis
     ["start", "task-a", "--repo", dir, "--brief", file],
     ["start", "task-c", "--repo", dir, "--brief", file],
     ["wait", "task-a", "--until", "exit 0"],
+    ["priority", "task-a", "urgent"],
   ])
     expect(refusal(run(w, w.root, args))).toMatchObject({
       code: "halted",
