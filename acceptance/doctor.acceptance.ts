@@ -76,10 +76,9 @@ test("AC-26 doctor passes with no store and makes none, warns a version-1, a ver
   expect(fresh.checks.map(({ name }) => name)).toEqual(["store", "bash", "agent-task", "jq", "git"]);
   for (const one of fresh.checks) expect([one.name, one.state, one.fix]).toEqual([one.name, "ok", null]);
   expect(check(fresh, "jq").detail).toBe(`found at ${join(bin, "jq")}`);
-  expect(existsSync(join(w.root, "data", "agent-task"))).toBe(false);
   const dir = join(w.root, "data", "agent-task");
-  mkdirSync(dir);
   const path = join(dir, "tasks.db");
+  expect(existsSync(path)).toBe(false);
   const versioned = (version: number) => {
     const db = new Database(path);
     db.run(`PRAGMA user_version = ${version}`);

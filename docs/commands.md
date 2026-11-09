@@ -7,7 +7,7 @@ Each command prints [TOON](https://toonformat.dev): a result on stdout, or an er
 | Command | Does |
 | --- | --- |
 | `agent-task add <name> --repo <path> --goal <text> [--project <id>] [--plan <file>] [--priority urgent\|high\|medium\|low] [--after <name>]... [--waits <text>] [--until <command>]` | Queue a task under a kebab-case name: its repository, goal, project, plan, priority, the tasks it waits after, what else it waits for and the check that says its wait is met; on a queued name, replace them |
-| `agent-task start <name> --repo <path> --brief <file> [--project <id>] [--session <id>]` | Run a task, new or queued, recording its repository, its brief with the brief's sha, the session and, when given, its project; refused `blocked` while a task it waits after is still held |
+| `agent-task start <name> --repo <path> --brief <file> [--project <id>] [--session <id>]` | Run a task, new or queued, recording its repository, its brief with the brief's sha, the session and, when given, its project; refused `blocked` while a task it waits after is still held, and `machine_busy` while the machine is too busy. See [A busy machine](#a-busy-machine) |
 | `agent-task wait <name> [--after <name>]... [--waits <text>] [--until <command>]` | Replace what a task waits for: tasks to land and a check that says the wait is met, on a queued task, and anything else as text; with none of the three, clear all three |
 | `agent-task map <name> --project <id>` | Make a task in any state belong to a project the store holds |
 | `agent-task priority <name> urgent\|high\|medium\|low\|none` | Set the priority of a task in any state, or with `none` clear it, keeping every other field |
@@ -64,6 +64,47 @@ A project groups tasks, so `list --project <id>` shows one project's work alone.
 - **Unreadable**: a record that is not a file, or not JSON of a reason and a time, counts as raised. `resume` removes it; one it cannot remove, such as a directory, is refused `halt_unremovable` and stays.
 - **In sessions**: the plugin refuses edits, shell commands and agents while a halt is raised, as [the plugin doc](plugin.md#the-halt) says.
 
+## A busy machine
+
+`start` refuses to start a task while the machine is too busy for another one, whatever is keeping it busy, so agents never pile work onto a busy machine. The other commands never read the machine.
+
+- **CPU**: refused while the 1-minute load average divided by the machine's CPU cores is above `maxLoadPerCore`, by default 0.7, which is about 10 on 14 cores.
+- **Memory**: refused while the share of physical memory available to a new process is below `minAvailableMemory`, by default 0.15. Available memory is what the operating system can give a new process without swapping, reclaimable cache included: `MemAvailable` in `/proc/meminfo` on Linux, and the `kern.memorystatus_level` sysctl on macOS.
+- **Any machine**: both readings come from the operating system on every `start`, so the check needs nothing set up on macOS or Linux.
+- **The refusal**: `machine_busy` names each reading, each limit, which reading passed its limit and the limits file, and says to start nothing now and retry once the machine is less busy:
+
+  ```text
+  command: start
+  ok: false
+  error:
+    kind: refusal
+    code: machine_busy
+    message: "this machine is too busy to start another task: the 1-minute load average is 10.5 on 14 cores, 0.75 per core, above the limit of 0.7"
+    meta:
+      name: task-a
+      over[1]: load
+      load:
+        average: 10.5
+        cores: 14
+        perCore: 0.75
+        limit: 0.7
+      memory:
+        available: 0.86
+        limit: 0.15
+      path: /Users/me/.local/share/agent-task/limits.json
+    resolve: "start nothing now; retry agent-task start task-a --repo <path> --brief <file> [--project <id>] [--session <id>] once the machine is less busy; only the owner changes this machine's limits, in /Users/me/.local/share/agent-task/limits.json"
+  ```
+
+- **No way past it**: no flag sets a limit or a reading, and the limits are read from beside the store, so a start made under another `XDG_DATA_HOME` reaches only another store. The owner changes the machine's limits instead.
+
+The limits are the machine's own, never the repo's, in `limits.json` beside the store, at `$XDG_DATA_HOME/agent-task/limits.json` (`~/.local/share/agent-task/limits.json` by default). Each is optional and takes its default when unset:
+
+```json
+{ "maxLoadPerCore": 0.7, "minAvailableMemory": 0.15 }
+```
+
+`maxLoadPerCore` is a number of at least 0, and `minAvailableMemory` a share of physical memory from 0 to 1. A file that is not such an object is refused `limits_unreadable` by `start`, naming the file and why.
+
 ## The update check
 
 agent-task tells the agent running it when a newer release is out on the channel it was installed through. Before any command, it prints one line on stderr, then the command's own output:
@@ -83,4 +124,4 @@ The check keeps the time it asked and each channel's latest version in `$XDG_STA
 
 ## The store
 
-The store lives on this machine, at `$XDG_DATA_HOME/agent-task/tasks.db` (`~/.local/share/agent-task/tasks.db` by default), with the halt, when one is raised, in `halt.json` beside it. A store of schema version 1, 2, 3 or 4, written by an earlier agent-task, is migrated by the first command that opens it, keeping every task it holds; from version 3 it gains the projects, holding none, and from version 4 it drops any owner item, which an unreleased agent-task recorded.
+The store lives on this machine, at `$XDG_DATA_HOME/agent-task/tasks.db` (`~/.local/share/agent-task/tasks.db` by default), with the halt, when one is raised, in `halt.json` beside it, and the machine's limits, when the owner sets them, in `limits.json`. A store of schema version 1, 2, 3 or 4, written by an earlier agent-task, is migrated by the first command that opens it, keeping every task it holds; from version 3 it gains the projects, holding none, and from version 4 it drops any owner item, which an unreleased agent-task recorded.

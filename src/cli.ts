@@ -4,6 +4,7 @@ import { version } from "../package.json";
 import { COMMANDS } from "./cli-commands";
 import { type Command, type Outcome, type Runtime, usageError } from "./cli-contract";
 import { exitWithError, exitWithResult, exitWithVersion, writeNotice } from "./cli-output";
+import { readMachine } from "./machine";
 import { curlInstallPath, updateCheckPath } from "./paths";
 import { installChannel, updateNotice } from "./update";
 
@@ -49,6 +50,7 @@ const runtime: Runtime = {
   busyWaitMs: BUSY_WAIT_MS,
   untilTimeoutMs: UNTIL_TIMEOUT_MS,
   now: () => new Date(),
+  readMachine,
 };
 
 const updateCheckOff =

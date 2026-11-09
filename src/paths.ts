@@ -15,6 +15,8 @@ const HALT_FILE = "halt.json";
 
 const UPDATE_CHECK_FILE = "update-check.json";
 
+const LIMITS_FILE = "limits.json";
+
 function homeDir(env: Env): string {
   return env.home ?? userInfo().homedir;
 }
@@ -35,6 +37,10 @@ export function storePath(env: Env): string {
 
 export function haltPath(env: Env): string {
   return join(dataDir(env), HALT_FILE);
+}
+
+export function limitsPath(env: Env): string {
+  return join(dataDir(env), LIMITS_FILE);
 }
 
 export function updateCheckPath(env: Env): string {

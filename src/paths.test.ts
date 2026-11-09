@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { userInfo } from "node:os";
-import { curlInstallPath, dataDir, storePath, updateCheckPath } from "./paths";
+import { curlInstallPath, dataDir, limitsPath, storePath, updateCheckPath } from "./paths";
 
 const UNSET = { home: null, dataHome: null, stateHome: null };
 
@@ -20,6 +20,11 @@ describe("the data directory", () => {
 
   test("holds the store as tasks.db", () => {
     expect(storePath({ ...UNSET, home: "/h", dataHome: "/x" })).toBe("/x/agent-task/tasks.db");
+  });
+
+  test("holds the machine's limits as limits.json beside the store", () => {
+    expect(limitsPath({ ...UNSET, home: "/h", dataHome: "/x" })).toBe("/x/agent-task/limits.json");
+    expect(limitsPath({ ...UNSET, home: "/h" })).toBe("/h/.local/share/agent-task/limits.json");
   });
 });
 

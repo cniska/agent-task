@@ -42,11 +42,33 @@ export function removeScratchDirs(): void {
   for (const dir of scratchDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 }
 
+export const UNLIMITED = { maxLoadPerCore: 1_000_000, minAvailableMemory: 0 };
+
+type Limits = Readonly<Record<string, number>>;
+
+function limitsIn(dataHome: string): string {
+  return join(dataHome, "agent-task", "limits.json");
+}
+
+export function writeLimits(dataHome: string, limits: Limits): void {
+  mkdirSync(dirname(limitsIn(dataHome)), { recursive: true });
+  writeFileSync(limitsIn(dataHome), JSON.stringify(limits));
+}
+
+export function limitsAt(w: World): string {
+  return limitsIn(join(w.root, "data"));
+}
+
+export function setLimits(w: World, limits: Limits): void {
+  writeLimits(join(w.root, "data"), limits);
+}
+
 export function world(): World {
   const root = scratchDir();
   const home = join(root, "home");
   const xdg = { XDG_DATA_HOME: "data", XDG_CONFIG_HOME: "config", XDG_STATE_HOME: "state" };
   for (const dir of [home, ...Object.values(xdg).map((name) => join(root, name))]) mkdirSync(dir);
+  writeLimits(join(root, "data"), UNLIMITED);
   return {
     root,
     env: {

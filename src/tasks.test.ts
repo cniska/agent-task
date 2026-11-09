@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { liftHalt, raiseHalt } from "./halt";
+import type { Reading } from "./machine";
 import { addProject } from "./projects";
 import { brief, git, named, projectNamed, removeScratchDirs, repo, scratchDir } from "./repo.test-support";
 import { insertQueued, openStore, taskByName } from "./store";
@@ -33,6 +34,8 @@ const EMPTY = { tasks: [], halt: { state: "none" } as const, ready: [], waiting:
 
 const CHECK_TIMEOUT_MS = 5000;
 
+const CALM: Reading = { loadAverage: 1, cores: 14, availableMemory: 0.8 };
+
 const SHORT_CHECK_TIMEOUT_MS = 50;
 
 function context(at: Date = STARTED): Context {
@@ -40,6 +43,8 @@ function context(at: Date = STARTED): Context {
   return {
     store: openStore(join(dir, "tasks.db"), 0),
     haltPath: join(dir, "halt.json"),
+    limitsPath: join(dir, "limits.json"),
+    readMachine: () => CALM,
     processEnv: process.env,
     now: () => at,
     untilTimeoutMs: CHECK_TIMEOUT_MS,
@@ -774,5 +779,61 @@ describe("a halt", () => {
     expect(
       start(ctx, { project: null, name: "task-a", repo: queued.dir, brief: brief(dir), session: null }).state,
     ).toBe("running");
+  });
+});
+
+describe("a busy machine", () => {
+  test("refuses start while the load per core is above its limit or the available memory below its own, recording nothing, and admits it once calm", () => {
+    const ctx = context();
+    const queued = added(ctx, "task-a");
+    const dir = repo();
+    const before = list(ctx, null);
+    const loaded = { ...ctx, readMachine: () => ({ ...CALM, loadAverage: 10.5 }) };
+    const starting = { project: null, name: "task-a", repo: queued.dir, brief: brief(dir), session: null };
+    expect(() => start(loaded, starting)).toThrow(
+      expect.objectContaining({
+        kind: "refusal",
+        code: "machine_busy",
+        message:
+          "this machine is too busy to start another task: the 1-minute load average is 10.5 on 14 cores, 0.75 per core, above the limit of 0.7",
+        meta: {
+          name: "task-a",
+          over: ["load"],
+          load: { average: 10.5, cores: 14, perCore: 0.75, limit: 0.7 },
+          memory: { available: 0.8, limit: 0.15 },
+          path: ctx.limitsPath,
+        },
+      }),
+    );
+    const short = { ...ctx, readMachine: () => ({ ...CALM, loadAverage: 12, availableMemory: 0.1 }) };
+    expect(() => start(short, { ...starting, name: "task-b" })).toThrow(
+      expect.objectContaining({
+        code: "machine_busy",
+        message:
+          "this machine is too busy to start another task: the 1-minute load average is 12 on 14 cores, 0.86 per core, above the limit of 0.7; 10% of memory is available, below the limit of 15%",
+        meta: expect.objectContaining({ name: "task-b", over: ["load", "memory"] }),
+      }),
+    );
+    expect(list(ctx, null)).toEqual(before);
+    const atLimits = {
+      ...ctx,
+      readMachine: () => ({ ...CALM, loadAverage: 7, cores: 10, availableMemory: 0.15 }),
+    };
+    expect(start(atLimits, starting).state).toBe("running");
+  });
+
+  test("leaves add, wait, map, priority, review, stop and done to run", () => {
+    const calm = context();
+    started(calm, "task-b");
+    const ctx = { ...calm, readMachine: () => ({ ...CALM, availableMemory: 0 }) };
+    addedProject(ctx, "site");
+    added(ctx, "task-a");
+    expect(wait(ctx, { name: "task-a", after: [], waits: "a reason", until: null }).state).toBe("queued");
+    expect(map(ctx, "task-a", "site").project).toBe(projectNamed("site"));
+    expect(prioritize(ctx, "task-a", "urgent").priority).toBe("urgent");
+    expect(done(ctx, "task-a").state).toBe("queued");
+    expect(review(ctx, "task-b").state).toBe("review");
+    expect(stop(ctx, "task-b").state).toBe("queued");
+    expect(list(ctx, null).ready.map(({ name }) => name)).toEqual([named("task-b")]);
   });
 });

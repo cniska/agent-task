@@ -1,5 +1,6 @@
 import { usageErrors } from "./coded-error";
 import type { ProcessEnv } from "./git";
+import type { Reading } from "./machine";
 import type { Env } from "./paths";
 
 export type Runtime = {
@@ -10,6 +11,7 @@ export type Runtime = {
   readonly busyWaitMs: number;
   readonly untilTimeoutMs: number;
   readonly now: () => Date;
+  readonly readMachine: () => Reading;
 };
 
 export type ResultStatus = 0 | 1;

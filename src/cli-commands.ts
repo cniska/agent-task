@@ -6,7 +6,7 @@ import { doctorView, listingView, projectsView, startedListingView, type View } 
 import { messageOf } from "./coded-error";
 import { DOCTOR_USAGE, doctor } from "./doctor";
 import { HALT_USAGE, haltedNow, liftHalt, raiseHalt } from "./halt";
-import { haltPath, storePath } from "./paths";
+import { haltPath, limitsPath, storePath } from "./paths";
 import { addProject, dropProject, listProjects } from "./projects";
 import { closeStore, isPriority, openStore, type Priority } from "./store";
 import {
@@ -123,6 +123,8 @@ function withContext(runtime: Runtime, act: (context: Context) => unknown): Outc
       value: act({
         store,
         haltPath: haltPath(runtime.env),
+        limitsPath: limitsPath(runtime.env),
+        readMachine: runtime.readMachine,
         processEnv: runtime.processEnv,
         now: runtime.now,
         untilTimeoutMs: runtime.untilTimeoutMs,
@@ -170,7 +172,7 @@ const startCommand: Command = {
   name: "start",
   usage: USAGE.start,
   summary:
-    "run a task, new or queued: its repository, its brief, the brief's content, the session and, when given, its project",
+    "run a task, new or queued: its repository, its brief, the brief's content, the session and, when given, its project; refused while the machine is too busy for another task",
   run(args, runtime) {
     const { positionals, values } = parsed(this, args, {
       repo: { type: "string" },

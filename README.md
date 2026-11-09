@@ -8,6 +8,7 @@ agent-task records each coding-agent task on this machine, with the repository i
 
 - `agent-task add <name>` queues a task with its goal, plan, priority, what it waits for and the check that says its wait is met, and `list` prints the queue in the order to start it.
 - `agent-task start <name>` runs a task from a brief, recording the brief's path and git blob sha and the session that started it; `review` marks it handed back for review, and `list` flags a brief that changed since.
+- `start` refuses while the machine is too busy for another task: while the load per CPU core is above 0.7 or less than 15% of memory is available, limits the owner can change per machine in `~/.local/share/agent-task/limits.json`.
 - `agent-task done <name>` removes a task however its work ended; whether the work landed is git's to show.
 - `agent-task project add <id>` adds a project, which a task can belong to, and `list --project <id>` shows that project's tasks alone.
 - `agent-task halt "<reason>"` stops all agent work on this machine until the owner runs `agent-task resume`, and the plugin enforces it in every session.
@@ -64,7 +65,7 @@ agent-task is the record of the work on this machine, not an issue tracker such 
 | Command | Does |
 | --- | --- |
 | `agent-task add <name> --repo <path> --goal <text> [...]` | Queue a task, or replace a queued one |
-| `agent-task start <name> --repo <path> --brief <file> [...]` | Run a task, new or queued, from its brief |
+| `agent-task start <name> --repo <path> --brief <file> [...]` | Run a task, new or queued, from its brief, unless the machine is too busy |
 | `agent-task wait <name> [--after <name>]... [--waits <text>] [--until <command>]` | Replace what a task waits for |
 | `agent-task map <name> --project <id>` | Make a task belong to a project |
 | `agent-task priority <name> urgent\|high\|medium\|low\|none` | Set or clear a task's priority |

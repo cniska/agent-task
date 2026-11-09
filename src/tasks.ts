@@ -5,6 +5,7 @@ import { refusals } from "./coded-error";
 import { permits } from "./file";
 import { blobSha, mainWorkingTree, type ProcessEnv } from "./git";
 import { type Halt, readHalt, refuseWhileHalted } from "./halt";
+import { type Reading, refuseWhileBusy } from "./machine";
 import { parseProjectId } from "./projects";
 import {
   type InReview,
@@ -38,6 +39,8 @@ import { actFor, USAGE } from "./usage";
 export type Context = {
   readonly store: Store;
   readonly haltPath: string;
+  readonly limitsPath: string;
+  readonly readMachine: () => Reading;
   readonly processEnv: ProcessEnv;
   readonly now: () => Date;
   readonly untilTimeoutMs: number;
@@ -196,7 +199,8 @@ export type StartRequest = {
 
 const UNQUEUED = { goal: null, plan: null, priority: null, waits: null };
 
-export function start({ store, haltPath, processEnv, now }: Context, request: StartRequest): Running {
+export function start(context: Context, request: StartRequest): Running {
+  const { store, haltPath, processEnv, now } = context;
   refuseWhileHalted(haltPath);
   const name = parseName(request.name);
   const repo = mainWorkingTree(request.repo, processEnv);
@@ -204,6 +208,7 @@ export function start({ store, haltPath, processEnv, now }: Context, request: St
   if (briefSha === null) throw refuse("brief_unreadable", { brief: request.brief });
   const brief = realpathSync(request.brief);
   const project = projectOf(request.project);
+  refuseWhileBusy(context, name);
   const started = now().toISOString();
   const task = { name, project, repo, brief, briefSha, session: request.session, started };
   const starting = startQueued(store, task);

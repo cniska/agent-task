@@ -14,6 +14,8 @@ main() {
   scratch="$(mktemp -d)"
   trap remove_scratch EXIT
   export XDG_DATA_HOME="$scratch/data"
+  mkdir -p "$XDG_DATA_HOME/agent-task"
+  printf '{"maxLoadPerCore": 1000000, "minAvailableMemory": 0}\n' > "$XDG_DATA_HOME/agent-task/limits.json"
   mkdir "$scratch/repo"
   cd "$scratch/repo"
   git init -q

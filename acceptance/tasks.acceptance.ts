@@ -17,6 +17,8 @@ import {
   runAtOnce,
   type Shown,
   type World,
+  UNLIMITED,
+  writeLimits,
   world,
 } from "./harness";
 
@@ -153,10 +155,11 @@ test("AC-2 an unset, empty or relative XDG_DATA_HOME puts the store under HOME/.
   ];
   for (const [index, options] of cases.entries()) {
     rmSync(join(w.root, "home", ".local"), { recursive: true, force: true });
+    writeLimits(join(w.root, "home", ".local", "share"), UNLIMITED);
     const name = `task-${index}`;
     expect(run(w, w.root, ["start", name, "--repo", dir, "--brief", file], options).exitCode).toBe(0);
     expect(existsSync(store)).toBe(true);
-    expect(existsSync(join(w.root, "data", "agent-task"))).toBe(false);
+    expect(existsSync(join(w.root, "data", "agent-task", "tasks.db"))).toBe(false);
   }
 });
 
