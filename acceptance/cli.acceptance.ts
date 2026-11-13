@@ -49,6 +49,8 @@ test("AC-19 no command prints what list prints, --help lists the commands and th
         "halt",
         "resume",
         "halted",
+        "check",
+        "gate",
         "doctor",
       ].map((name) => ({
         name,

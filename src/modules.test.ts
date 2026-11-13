@@ -96,7 +96,7 @@ const MODULES = modulesOf(readFileSync(README, "utf8"));
 
 const ENTRY = "cli";
 
-const PROCESS_RUNNERS = new Set(["git", "until"]);
+const PROCESS_RUNNERS = new Set(["check", "git", "until"]);
 
 const TEST_PROCESS_RUNNERS = new Set(["cli.test.ts", "repo.test-support.ts"]);
 
@@ -272,7 +272,7 @@ describe("the modules", () => {
     expect(moduleSources().flatMap(({ file, text }) => envBreaches(file, text))).toEqual([]);
   });
 
-  test("only git and until start a process, and among the tests only cli.test.ts and the repo fixtures", () => {
+  test("only check, git and until start a process, and among the tests only cli.test.ts and the repo fixtures", () => {
     expect(allSources().flatMap(({ file, text }) => processBreaches(file, text))).toEqual([]);
   });
 
@@ -380,7 +380,7 @@ describe("the module checks", () => {
     }
   });
 
-  test("catch a process started outside git and until", () => {
+  test("catch a process started outside check, git and until", () => {
     for (const text of [
       'import { spawnSync } from "node:child_process";',
       'import { execFileSync } from "child_process";',

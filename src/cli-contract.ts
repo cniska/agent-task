@@ -12,11 +12,14 @@ export type Runtime = {
   readonly untilTimeoutMs: number;
   readonly now: () => Date;
   readonly readMachine: () => Reading;
+  readonly pause: () => void;
 };
 
 export type ResultStatus = 0 | 1;
 
-export type Outcome = { readonly value: unknown; readonly status: ResultStatus };
+export type Outcome =
+  | { readonly kind: "result"; readonly value: unknown; readonly status: ResultStatus }
+  | { readonly kind: "ran"; readonly status: number };
 
 export type Command = {
   readonly name: string;

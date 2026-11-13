@@ -22,6 +22,8 @@ const UNTIL_TIMEOUT_MS = 5000;
 
 const UPDATE_CHECK_TIMEOUT_MS = 1000;
 
+const CHECK_POLL_MS = 1000;
+
 const FLAGS = [
   { name: HELP_FLAG, usage: `${PROGRAM} ${HELP_FLAG}`, summary: "list the commands and flags" },
   { name: VERSION_FLAG, usage: `${PROGRAM} ${VERSION_FLAG}`, summary: "print the version alone on one line" },
@@ -51,6 +53,7 @@ const runtime: Runtime = {
   untilTimeoutMs: UNTIL_TIMEOUT_MS,
   now: () => new Date(),
   readMachine,
+  pause: () => Bun.sleepSync(CHECK_POLL_MS),
 };
 
 const updateCheckOff =
@@ -110,6 +113,8 @@ function ranOrExited(chosen: Command): Outcome {
   }
 }
 
-const { value, status } = ranOrExited(command);
+const outcome = ranOrExited(command);
 
-exitWithResult(command.name, value, status);
+if (outcome.kind === "ran") process.exit(outcome.status);
+
+exitWithResult(command.name, outcome.value, outcome.status);

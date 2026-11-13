@@ -17,8 +17,7 @@ export const DEFAULT_LIMITS: Limits = { maxLoadPerCore: 0.7, minAvailableMemory:
 
 type Over = "load" | "memory";
 
-type Busy = {
-  readonly name: string;
+export type Strain = {
   readonly over: readonly Over[];
   readonly load: {
     readonly average: number;
@@ -27,8 +26,9 @@ type Busy = {
     readonly limit: number;
   };
   readonly memory: { readonly available: number; readonly limit: number };
-  readonly path: string;
 };
+
+type Busy = Strain & { readonly name: string; readonly path: string };
 
 const LIMIT_KEYS = new Set<string>(Object.keys(DEFAULT_LIMITS));
 
@@ -54,15 +54,19 @@ function rounded(value: number): number {
   return Math.round(value * PERCENT) / PERCENT;
 }
 
-function overText(busy: Busy, over: Over): string {
+function overText(strain: Strain, over: Over): string {
   switch (over) {
     case "load":
-      return `the 1-minute load average is ${busy.load.average} on ${busy.load.cores} cores, ${busy.load.perCore} per core, above the limit of ${busy.load.limit}`;
+      return `the 1-minute load average is ${strain.load.average} on ${strain.load.cores} cores, ${strain.load.perCore} per core, above the limit of ${strain.load.limit}`;
     case "memory":
-      return `${percent(busy.memory.available)} of memory is available, below the limit of ${percent(busy.memory.limit)}`;
+      return `${percent(strain.memory.available)} of memory is available, below the limit of ${percent(strain.memory.limit)}`;
     default:
       return unreachable(over);
   }
+}
+
+export function strainText(strain: Strain): string {
+  return strain.over.map((over) => overText(strain, over)).join("; ");
 }
 
 const refuse = refusals<{
@@ -71,8 +75,7 @@ const refuse = refusals<{
   readonly machine_unread: { readonly platform: string; readonly detail: string };
 }>({
   machine_busy: {
-    message: (busy) =>
-      `this machine is too busy to start another task: ${busy.over.map((over) => overText(busy, over)).join("; ")}`,
+    message: (busy) => `this machine is too busy to start another task: ${strainText(busy)}`,
     resolve: ({ name, path }) =>
       `start nothing now; retry ${actFor(USAGE.start, name)} once the machine is less busy; ${OWNER_SETS}, in ${path}`,
   },
@@ -85,7 +88,7 @@ const refuse = refusals<{
     message: ({ platform, detail }) =>
       `agent-task cannot read how busy this ${platform} machine is: ${detail}`,
     resolve: () =>
-      "stop and hand this error to the owner: agent-task start reads the load average and the available memory from macOS or Linux",
+      "stop and hand this error to the owner: agent-task start and check read the load average and the available memory from macOS or Linux",
   },
 });
 
@@ -178,16 +181,14 @@ export function readMachine(): Reading {
 
 export type MachineCheck = { readonly limitsPath: string; readonly readMachine: () => Reading };
 
-export function refuseWhileBusy({ limitsPath, readMachine: read }: MachineCheck, name: string): void {
+export function strainOf({ limitsPath, readMachine: read }: MachineCheck): Strain {
   const limits = readLimits(limitsPath);
   const reading = read();
   const perCore = reading.loadAverage / reading.cores;
   const over: Over[] = [];
   if (perCore > limits.maxLoadPerCore) over.push("load");
   if (reading.availableMemory < limits.minAvailableMemory) over.push("memory");
-  if (over.length === 0) return;
-  throw refuse("machine_busy", {
-    name,
+  return {
     over,
     load: {
       average: rounded(reading.loadAverage),
@@ -196,6 +197,11 @@ export function refuseWhileBusy({ limitsPath, readMachine: read }: MachineCheck,
       limit: limits.maxLoadPerCore,
     },
     memory: { available: rounded(reading.availableMemory), limit: limits.minAvailableMemory },
-    path: limitsPath,
-  });
+  };
+}
+
+export function refuseWhileBusy(check: MachineCheck, name: string): void {
+  const strain = strainOf(check);
+  if (strain.over.length === 0) return;
+  throw refuse("machine_busy", { name, ...strain, path: check.limitsPath });
 }

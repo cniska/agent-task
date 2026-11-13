@@ -9,6 +9,7 @@ agent-task records each coding-agent task on this machine, with the repository i
 - `agent-task add <name>` queues a task with its goal, plan, priority, what it waits for and the check that says its wait is met, and `list` prints the queue in the order to start it.
 - `agent-task start <name>` runs a task from a brief, recording the brief's path and git blob sha and the session that started it; `review` marks it handed back for review, and `list` flags a brief that changed since.
 - `start` refuses while the machine is too busy for another task: while the load per CPU core is above 0.7 or less than 15% of memory is available, limits the owner can change per machine in `~/.local/share/agent-task/limits.json`.
+- `agent-task check '<command>'` runs a test, check, verify, lint, typecheck or build once no other check on this machine runs and the machine is under those same limits, and the plugin refuses a check an agent runs any other way.
 - `agent-task done <name>` removes a task however its work ended; whether the work landed is git's to show.
 - `agent-task project add <id>` adds a project, which a task can belong to, and `list --project <id>` shows that project's tasks alone.
 - `agent-task halt "<reason>"` stops all agent work on this machine until the owner runs `agent-task resume`, and the plugin enforces it in every session.
@@ -77,6 +78,8 @@ agent-task is the record of the work on this machine, not an issue tracker such 
 | `agent-task halt <reason>` | Halt all agent work on this machine |
 | `agent-task resume` | Lift the halt |
 | `agent-task halted` | Say whether a halt is raised |
+| `agent-task check '<command>'` | Run a check, one at a time across this machine and only while it is under its limits |
+| `agent-task gate '<command>'` | Say whether a shell command runs a check other than through `check` |
 | `agent-task doctor [--full]` | Check what agent-task and its plugin need |
 | `agent-task` | Run `list` |
 | `agent-task --help` | List the commands and flags |
@@ -87,7 +90,7 @@ agent-task is the record of the work on this machine, not an issue tracker such 
 ## Docs
 
 - [Commands](docs/commands.md): every command, its flags and output, and where the store lives.
-- [Claude Code plugin](docs/plugin.md): what the plugin's hooks do, the halt they enforce, and what they need.
+- [Claude Code plugin](docs/plugin.md): what the plugin's hooks do, the halt and the check gate they enforce, and what they need.
 - [Development](docs/development.md): setup, checks, scripts and rules, for working on this repo.
 - [Contributing](CONTRIBUTING.md): how outside contributors propose a change.
 - [Releasing](docs/releasing.md): the release workflow, what a release guarantees, the owner's one-time setup and each release's steps.

@@ -121,6 +121,7 @@ test("AC-24 the session hook adds its note naming agent-task's commands from any
     "`agent-task start`",
     "`agent-task review`",
     "`agent-task done`",
+    "`agent-task check",
     "`agent-task halt",
     "`agent-task resume`",
   ])
@@ -346,6 +347,35 @@ test("AC-40 the session hook puts a raised halt and its reason before the note, 
   });
   result(run(w, w.root, ["resume"]));
   expect(sessionStart(w, bin, w.root)).toEqual(NOTED);
+});
+
+const UNGATED_LINE =
+  "cniska-task: this command runs a check outside agent-task check, so this tool call is refused. Checks on this machine run one at a time, and only while it is under its limits, through agent-task check. agent-task gate reports:";
+
+test("AC-57 the tool hook refuses a shell or monitor command that runs a check outside agent-task check, naming the command to run instead, and lets it through when it cannot ask agent-task", () => {
+  const w = world();
+  const bin = binWith(w, ON_PATH, true);
+  for (const [tool, command] of [
+    ["Bash", "cd app && mise run check"],
+    ["PowerShell", "bun test"],
+    ["Monitor", "flutter test"],
+  ] as const) {
+    const ran = toolCall(w, bin, tool, { command });
+    expect([ran.exitCode, ran.stdout]).toEqual([2, ""]);
+    const [line, ...gate] = ran.stderr.split("\n");
+    expect(line).toBe(UNGATED_LINE);
+    expect(decode(gate.join("\n"))).toMatchObject({
+      command: "gate",
+      error: { code: "check_ungated", resolve: expect.stringContaining(`agent-task check '${command}'`) },
+    });
+  }
+  expect(toolCall(w, bin, "Bash", { command: "agent-task check 'mise run check'" })).toEqual(PASSED);
+  expect(toolCall(w, bin, "Bash", { command: "ls" })).toEqual(PASSED);
+  expect(toolCall(w, bin, "Edit", EDIT)).toEqual(PASSED);
+  expect(toolCall(w, olderCli(w), "Bash", { command: "mise run check" })).toEqual(PASSED);
+  expect(toolCall(w, binWith(w, ON_PATH, false, "bare"), "Bash", { command: "mise run check" })).toEqual(
+    PASSED,
+  );
 });
 
 const BUILD_TIMEOUT_MS = 60_000;

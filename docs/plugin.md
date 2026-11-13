@@ -1,10 +1,10 @@
 # Claude Code Plugin
 
-The `cniska-task` plugin, in `plugin/` and the `cniska` marketplace, tells every session where queued and running work lives, puts the running and in-review tasks in its context, and enforces a halt. It reads the store only through the CLI.
+The `cniska-task` plugin, in `plugin/` and the `cniska` marketplace, tells every session where queued and running work lives, puts the running and in-review tasks in its context, and enforces a halt and the check gate. It reads the store only through the CLI.
 
 ## What it does
 
-Whenever a session starts, resumes, clears or compacts, it adds a short note, `plugin/hooks/note.md`: queued and running work lives in agent-task, not in a ledger, a notes file or a plan, and `add`, `start`, `review` and `done` queue, start, hand back and close a task.
+Whenever a session starts, resumes, clears or compacts, it adds a short note, `plugin/hooks/note.md`: queued and running work lives in agent-task, not in a ledger, a notes file or a plan, `add`, `start`, `review` and `done` queue, start, hand back and close a task, and every check runs through `agent-task check`.
 
 When the working directory holds the brief of a running or in-review task, it adds the running and in-review tasks after the note as `list --started` prints them, `briefChanged` included, so the session sees a task whose brief no longer has the `briefSha` recorded when it started.
 
@@ -20,6 +20,14 @@ While a halt is raised, as `agent-task halted` reports it, the plugin stops the 
 - **Unreadable input**: while halted, a call whose input the hook cannot read, without `jq` or not JSON, is refused.
 
 The hooks decide on `halted`'s exit status alone, and let calls through when they cannot ask it. When `agent-task` is missing or fails `--version`, session start prints only a line saying the halt could not be checked; when it is too old to know `halted`, that line comes before the note.
+
+## The check gate
+
+With no halt raised, the `PreToolUse` hook passes each `Bash`, `PowerShell` and `Monitor` command to `agent-task gate`. When the command runs a test, check, verify, lint, typecheck or build other than through [`agent-task check`](commands.md#checks), it refuses the call, naming the `agent-task check` command to run instead. So every agent's checks run one at a time across the machine, and only while it is under its limits.
+
+- **Every session**: the gate holds in every session the plugin runs in, a coordinator's included.
+- **The owner's shell**: a terminal the owner runs has no hook, so it is never held.
+- **Lets through when it cannot ask**: when `agent-task` is missing or too old to know `gate`, or the hook cannot read the command without `jq`, the call goes through.
 
 The hooks export `AGENT_TASK_NO_UPDATE_CHECK`, so agent-task's [update line](commands.md#the-update-check) never enters what they capture and show, a halt refusal included.
 

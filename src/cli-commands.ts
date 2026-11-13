@@ -1,12 +1,15 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { unreachable } from "./assert";
+import { runGatedCheck } from "./check";
 import { type Command, type Outcome, type Runtime, usageError } from "./cli-contract";
+import { writeNotice } from "./cli-output";
 import { doctorView, listingView, projectsView, startedListingView, type View } from "./cli-views";
 import { messageOf } from "./coded-error";
 import { DOCTOR_USAGE, doctor } from "./doctor";
+import { GATE_USAGE, refuseUngated } from "./gate";
 import { HALT_USAGE, haltedNow, liftHalt, raiseHalt } from "./halt";
-import { haltPath, limitsPath, storePath } from "./paths";
+import { haltPath, limitsPath, slotPath, storePath } from "./paths";
 import { addProject, dropProject, listProjects } from "./projects";
 import { closeStore, isPriority, openStore, type Priority } from "./store";
 import {
@@ -129,6 +132,7 @@ function withContext(runtime: Runtime, act: (context: Context) => unknown): Outc
         now: runtime.now,
         untilTimeoutMs: runtime.untilTimeoutMs,
       }),
+      kind: "result",
       status: 0,
     };
   } finally {
@@ -370,7 +374,7 @@ const doctorCommand: Command = {
       searchPath: runtime.searchPath,
     });
     const report = doctorView(checks, viewOf(values));
-    return { value: report, status: report.counts.fail === 0 ? 0 : 1 };
+    return { kind: "result", value: report, status: report.counts.fail === 0 ? 0 : 1 };
   },
 };
 
@@ -378,10 +382,14 @@ const haltCommand: Command = {
   name: "halt",
   usage: HALT_USAGE.halt,
   summary:
-    "halt all agent work on this machine, recording the reason, until the owner runs resume; while a halt is raised, add, start, wait, map, priority, project add and project remove are refused, and so are the plugin's gated tools; on a raised halt, print it unchanged",
+    "halt all agent work on this machine, recording the reason, until the owner runs resume; while a halt is raised, add, start, wait, map, priority, project add, project remove and check are refused, and so are the plugin's gated tools; on a raised halt, print it unchanged",
   run(args, runtime) {
     const reason = oneReason(this, parsed(this, args, {}).positionals);
-    return { value: { halt: raiseHalt(haltPath(runtime.env), reason, runtime.now()) }, status: 0 };
+    return {
+      kind: "result",
+      value: { halt: raiseHalt(haltPath(runtime.env), reason, runtime.now()) },
+      status: 0,
+    };
   },
 };
 
@@ -391,7 +399,7 @@ const resumeCommand: Command = {
   summary: "lift the halt, the owner's act, printing the halt as it was, or none when none was raised",
   run(args, runtime) {
     noArguments(this, parsed(this, args, {}).positionals);
-    return { value: { halt: liftHalt(haltPath(runtime.env)) }, status: 0 };
+    return { kind: "result", value: { halt: liftHalt(haltPath(runtime.env)) }, status: 0 };
   },
 };
 
@@ -402,7 +410,47 @@ const haltedCommand: Command = {
     "print that no halt is raised, or while one is, refuse halted naming its reason; a halt recorded but unreadable counts as raised",
   run(args, runtime) {
     noArguments(this, parsed(this, args, {}).positionals);
-    return { value: { halt: haltedNow(haltPath(runtime.env)) }, status: 0 };
+    return { kind: "result", value: { halt: haltedNow(haltPath(runtime.env)) }, status: 0 };
+  },
+};
+
+function oneCommand(command: Command, args: readonly string[]): string {
+  const [shellCommand, ...rest] = parsed(command, args, {}).positionals;
+  if (!isText(shellCommand) || rest.length > 0)
+    refuseArguments(command, `takes one shell command, quoted, and got: ${args.join(" ") || "none"}`);
+  return shellCommand;
+}
+
+const checkCommand: Command = {
+  name: "check",
+  usage: GATE_USAGE.check,
+  summary:
+    "run a test, check, verify, lint, typecheck or build: wait until no other check on this machine runs and the machine is under its limits, then run the command with /bin/sh, passing its output and exit code through; refused while a halt is raised",
+  run(args, runtime) {
+    const command = oneCommand(this, args);
+    const status = runGatedCheck({
+      command,
+      cwd: runtime.cwd,
+      slotPath: slotPath(runtime.env),
+      haltPath: haltPath(runtime.env),
+      limitsPath: limitsPath(runtime.env),
+      readMachine: runtime.readMachine,
+      processEnv: runtime.processEnv,
+      now: runtime.now,
+      pause: runtime.pause,
+      say: writeNotice,
+    });
+    return { kind: "ran", status };
+  },
+};
+
+const gateCommand: Command = {
+  name: "gate",
+  usage: GATE_USAGE.gate,
+  summary:
+    "print that a shell command runs no check other than through agent-task check, or refuse check_ungated naming the checks it runs and the agent-task check command to run instead",
+  run(args) {
+    return { kind: "result", value: refuseUngated(oneCommand(this, args)), status: 0 };
   },
 };
 
@@ -420,5 +468,7 @@ export const COMMANDS: readonly Command[] = [
   haltCommand,
   resumeCommand,
   haltedCommand,
+  checkCommand,
+  gateCommand,
   doctorCommand,
 ];

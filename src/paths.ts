@@ -17,6 +17,8 @@ const UPDATE_CHECK_FILE = "update-check.json";
 
 const LIMITS_FILE = "limits.json";
 
+const SLOT_FILE = "check.lock";
+
 function homeDir(env: Env): string {
   return env.home ?? userInfo().homedir;
 }
@@ -41,6 +43,10 @@ export function haltPath(env: Env): string {
 
 export function limitsPath(env: Env): string {
   return join(dataDir(env), LIMITS_FILE);
+}
+
+export function slotPath(env: Env): string {
+  return join(dataDir(env), SLOT_FILE);
 }
 
 export function updateCheckPath(env: Env): string {

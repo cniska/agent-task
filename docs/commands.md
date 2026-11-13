@@ -21,6 +21,8 @@ Each command prints [TOON](https://toonformat.dev): a result on stdout, or an er
 | `agent-task halt <reason>` | Halt all agent work on this machine, recording the reason and the time; with a halt raised or unreadable, print it unchanged. See [The halt](#the-halt) |
 | `agent-task resume` | Lift the halt, the owner's act, printing it as it was, or `none` |
 | `agent-task halted` | Print `none` when no halt is raised; while one is, refuse `halted` naming its reason |
+| `agent-task check '<command>'` | Run a test, check, verify, lint, typecheck or build with `/bin/sh`, once no other check on this machine runs and the machine is under its limits, passing its output and exit code through. See [Checks](#checks) |
+| `agent-task gate '<command>'` | Print `gated` when a shell command runs no check but through `check`; otherwise refuse `check_ungated`, naming the `check` command to run instead |
 | `agent-task doctor [--full]` | Report what agent-task and its plugin need: the store, `bash`, `agent-task`, `jq` and git on `PATH`, each task's repository, each running or in-review task's brief and each plan a task names, each check `ok`, `warn` or `fail` with its fix; exit 1 when one fails |
 | `agent-task` | Run `list` with no flag |
 | `agent-task --help` | List each command and flag with its usage and summary |
@@ -59,14 +61,14 @@ A project groups tasks, so `list --project <id>` shows one project's work alone.
 
 `agent-task halt "<reason>"` stops all agent work on this machine until the owner runs `agent-task resume`. Anyone may raise it; only the owner lifts it.
 
-- **While raised**: `add`, `start`, `wait`, `map`, `priority`, `project add` and `project remove` are refused `halted`, naming the reason and `resume`; the other commands work.
+- **While raised**: `add`, `start`, `wait`, `map`, `priority`, `project add`, `project remove` and `check` are refused `halted`, naming the reason and `resume`; the other commands work.
 - **Reported**: `list` prints `halt` after `counts`, as `none`, `raised` with its reason and time, or `unreadable`.
 - **Unreadable**: a record that is not a file, or not JSON of a reason and a time, counts as raised. `resume` removes it; one it cannot remove, such as a directory, is refused `halt_unremovable` and stays.
 - **In sessions**: the plugin refuses edits, shell commands and agents while a halt is raised, as [the plugin doc](plugin.md#the-halt) says.
 
 ## A busy machine
 
-`start` refuses to start a task while the machine is too busy for another one, whatever is keeping it busy, so agents never pile work onto a busy machine. The other commands never read the machine.
+`start` refuses to start a task while the machine is too busy for another one, whatever is keeping it busy, so agents never pile work onto a busy machine. Of the other commands, only [`check`](#checks) reads the machine, and it waits rather than refusing.
 
 - **CPU**: refused while the 1-minute load average divided by the machine's CPU cores is above `maxLoadPerCore`, by default 0.7, which is about 10 on 14 cores.
 - **Memory**: refused while the share of physical memory available to a new process is below `minAvailableMemory`, by default 0.15. Available memory is what the operating system can give a new process without swapping, reclaimable cache included: `MemAvailable` in `/proc/meminfo` on Linux, and the `kern.memorystatus_level` sysctl on macOS.
@@ -103,7 +105,27 @@ The limits are the machine's own, never the repo's, in `limits.json` beside the 
 { "maxLoadPerCore": 0.7, "minAvailableMemory": 0.15 }
 ```
 
-`maxLoadPerCore` is a number of at least 0, and `minAvailableMemory` a share of physical memory from 0 to 1. A file that is not such an object is refused `limits_unreadable` by `start`, naming the file and why.
+`maxLoadPerCore` is a number of at least 0, and `minAvailableMemory` a share of physical memory from 0 to 1. A file that is not such an object is refused `limits_unreadable` by `start` and `check`, naming the file and why.
+
+## Checks
+
+`agent-task check '<command>'` runs an agent's test, check, verify, lint, typecheck or build so that only one runs at a time across the machine, and only while the machine is under [its limits](#a-busy-machine). Checks run in parallel by several agents, beside the owner's own work, have frozen the machine.
+
+- **The slot**: `check` takes the machine's one check slot, a lock on `check.lock` beside the store, waiting while another check holds it.
+- **The machine**: holding the slot, it waits while a reading is over its limit, as `start` reads them.
+- **The run**: it then runs the command with `/bin/sh -c` in the working directory, passing its input, output and exit code through, or 128 plus the signal's number when a signal ends it. It prints no result of its own.
+- **Freed when the check ends**: the check inherits the lock, so the slot is free once the check and every process still holding it end, however each ends. Killing agent-task alone frees nothing its check still holds.
+- **The halt**: refused `halted` while a halt is raised, before it waits, while it waits and before it runs.
+- **No way past it**: `check` takes one command and no flag. A check under another `XDG_DATA_HOME` takes only another store's slot.
+
+While it waits, `check` prints a line on stderr naming what it waits on, and again only when that changes:
+
+```text
+agent-task check: waiting for the check slot, held by process 4242 since 2026-11-13T13:20:00.000Z, running mise run check in /Users/me/code/app
+agent-task check: waiting for the machine, since the 1-minute load average is 12.3 on 14 cores, 0.88 per core, above the limit of 0.7
+```
+
+A long wait can outlast an agent tool's time limit, so an agent runs a check in the background. The plugin refuses a check run any other way, as [the plugin doc](plugin.md#the-check-gate) says. `agent-task gate '<command>'` is what it asks: it lists the checks a shell command runs outside `check`, as [SPEC FR-57](../SPEC.md) defines them, wherever they sit in the command. A command that never ends, such as a dev server or a watcher, is no check.
 
 ## The update check
 
@@ -124,4 +146,4 @@ The check keeps the time it asked and each channel's latest version in `$XDG_STA
 
 ## The store
 
-The store lives on this machine, at `$XDG_DATA_HOME/agent-task/tasks.db` (`~/.local/share/agent-task/tasks.db` by default), with the halt, when one is raised, in `halt.json` beside it, and the machine's limits, when the owner sets them, in `limits.json`. A store of schema version 1, 2, 3 or 4, written by an earlier agent-task, is migrated by the first command that opens it, keeping every task it holds; from version 3 it gains the projects, holding none, and from version 4 it drops any owner item, which an unreleased agent-task recorded.
+The store lives on this machine, at `$XDG_DATA_HOME/agent-task/tasks.db` (`~/.local/share/agent-task/tasks.db` by default), with the halt, when one is raised, in `halt.json` beside it, the machine's limits, when the owner sets them, in `limits.json`, and the check slot in `check.lock`. A store of schema version 1, 2, 3 or 4, written by an earlier agent-task, is migrated by the first command that opens it, keeping every task it holds; from version 3 it gains the projects, holding none, and from version 4 it drops any owner item, which an unreleased agent-task recorded.
