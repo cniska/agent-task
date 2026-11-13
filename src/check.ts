@@ -26,6 +26,8 @@ const SIGNAL_BASE = 128;
 
 const SLOT_MODE = 0o644;
 
+const NO_SUCH_PROCESS = "ESRCH";
+
 export type CheckRun = {
   readonly command: string;
   readonly cwd: string;
@@ -96,6 +98,15 @@ function textAt(value: unknown, key: string): string | number | null {
   return typeof found === "string" || typeof found === "number" ? found : null;
 }
 
+function isRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return !(error instanceof Error && "code" in error && error.code === NO_SUCH_PROCESS);
+  }
+}
+
 function holderText(path: string): string {
   let holder: unknown;
   try {
@@ -105,6 +116,8 @@ function holderText(path: string): string {
   }
   const [pid, command, cwd, started] = ["pid", "command", "cwd", "started"].map((key) => textAt(holder, key));
   if (pid === null || command === null || cwd === null || started === null) return "held by another check";
+  if (typeof pid === "number" && !isRunning(pid))
+    return `held by a process left running by the check ${command} in ${cwd}, which process ${pid} started at ${started} and which has ended; lsof ${path} names the holder`;
   return `held by process ${pid} since ${started}, running ${command} in ${cwd}`;
 }
 

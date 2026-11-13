@@ -13,6 +13,8 @@ const CALM: Reading = { loadAverage: 1, cores: 10, availableMemory: 0.5 };
 
 const LOADED: Reading = { loadAverage: 12, cores: 10, availableMemory: 0.5 };
 
+const GONE_PID = 99_999_999;
+
 const STARTED = new Date("2026-11-13T13:00:00.000Z");
 
 const libc = dlopen(process.platform === "darwin" ? "/usr/lib/libSystem.B.dylib" : "libc.so.6", {
@@ -77,7 +79,7 @@ describe("runGatedCheck", () => {
     writeFileSync(
       run.slotPath,
       JSON.stringify({
-        pid: 41,
+        pid: process.pid,
         command: "mise run check",
         cwd: "/work/app",
         started: "2026-11-13T12:00:00.000Z",
@@ -91,11 +93,29 @@ describe("runGatedCheck", () => {
     expect(runGatedCheck({ ...run, command: "exit 0", pause })).toBe(0);
     expect(pauses).toBe(2);
     expect(run.said).toEqual([
-      "agent-task check: waiting for the check slot, held by process 41 since 2026-11-13T12:00:00.000Z, running mise run check in /work/app",
+      `agent-task check: waiting for the check slot, held by process ${process.pid} since 2026-11-13T12:00:00.000Z, running mise run check in /work/app`,
     ]);
     const fd = locked(run.slotPath);
     expect(fd).not.toBeNull();
     if (fd !== null) closeSync(fd);
+  });
+
+  test("names a process left holding the slot once the check that started it has ended", () => {
+    const run = checking();
+    const holder = locked(run.slotPath);
+    if (holder === null) throw new Error("the slot was held before the test");
+    const ended = {
+      pid: GONE_PID,
+      command: "mise run check",
+      cwd: "/work/app",
+      started: "2026-11-13T12:00:00.000Z",
+    };
+    writeFileSync(run.slotPath, JSON.stringify(ended));
+    const pause = () => closeSync(holder);
+    expect(runGatedCheck({ ...run, command: "exit 0", pause })).toBe(0);
+    expect(run.said).toEqual([
+      `agent-task check: waiting for the check slot, held by a process left running by the check mise run check in /work/app, which process ${GONE_PID} started at 2026-11-13T12:00:00.000Z and which has ended; lsof ${run.slotPath} names the holder`,
+    ]);
   });
 
   test("holding the slot, waits while the machine is over its limits, naming each reading over once while the same ones stay over, then runs", () => {

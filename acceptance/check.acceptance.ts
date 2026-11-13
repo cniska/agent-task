@@ -52,6 +52,8 @@ const WAIT_FOR_GO = "while [ ! -f go ]; do sleep 0.05; done";
 
 const SLOT_LINE = "agent-task check: waiting for the check slot, held by process";
 
+const LEFT_LINE = "agent-task check: waiting for the check slot, held by a process left running by the check";
+
 const MACHINE_LINE = "agent-task check: waiting for the machine, since the 1-minute load average is";
 
 function lines(text: string, start: string): readonly string[] {
@@ -105,7 +107,8 @@ test("AC-54 the slot stays held until the killed check and every process still h
   const killed = checking(w, first, `(${WAIT_FOR_GO}) & kill -9 $$`);
   expect(await killed.exited).toBe(137);
   const waiting = checking(w, second, "printf ran > marker");
-  await until(() => waiting.stderr().includes(SLOT_LINE), "the slot line behind the background process");
+  await until(() => waiting.stderr().includes(LEFT_LINE), "the slot line behind the background process");
+  expect(waiting.stderr()).toContain(`which process ${killed.pid} started at`);
   writeFileSync(join(first, "go"), "");
   expect(await waiting.exited).toBe(0);
   expect(existsSync(join(second, "marker"))).toBe(true);
@@ -116,7 +119,8 @@ test("AC-54 the slot stays held until the killed check and every process still h
   orphaned.kill();
   await orphaned.exited;
   const behind = checking(w, third, "printf ran > marker");
-  await until(() => behind.stderr().includes(SLOT_LINE), "the slot line behind the orphaned check");
+  await until(() => behind.stderr().includes(LEFT_LINE), "the slot line behind the orphaned check");
+  expect(behind.stderr()).toContain(`which process ${orphaned.pid} started at`);
   expect(existsSync(join(third, "marker"))).toBe(false);
   writeFileSync(join(first, "go"), "");
   expect(await behind.exited).toBe(0);

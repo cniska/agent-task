@@ -114,7 +114,7 @@ The limits are the machine's own, never the repo's, in `limits.json` beside the 
 - **The slot**: `check` takes the machine's one check slot, a lock on `check.lock` beside the store, waiting while another check holds it.
 - **The machine**: holding the slot, it waits while a reading is over its limit, as `start` reads them.
 - **The run**: it then runs the command with `/bin/sh -c` in the working directory, passing its input, output and exit code through, or 128 plus the signal's number when a signal ends it. It prints no result of its own.
-- **Freed when the check ends**: the check inherits the lock, so the slot is free once the check and every process still holding it end, however each ends. Killing agent-task alone frees nothing its check still holds.
+- **Freed when the check ends**: the check inherits the lock, so the slot is free once the check and every process still holding it end, however each ends. Killing agent-task alone frees nothing its check still holds, and a waiter then names the slot's file, so `lsof` finds what still holds it.
 - **The halt**: refused `halted` while a halt is raised, before it waits, while it waits and before it runs.
 - **No way past it**: `check` takes one command and no flag. A check under another `XDG_DATA_HOME` takes only another store's slot.
 
@@ -122,6 +122,7 @@ While it waits, `check` prints a line on stderr naming what it waits on, and aga
 
 ```text
 agent-task check: waiting for the check slot, held by process 4242 since 2026-11-13T13:20:00.000Z, running mise run check in /Users/me/code/app
+agent-task check: waiting for the check slot, held by a process left running by the check mise run check in /Users/me/code/app, which process 4242 started at 2026-11-13T13:20:00.000Z and which has ended; lsof /Users/me/.local/share/agent-task/check.lock names the holder
 agent-task check: waiting for the machine, since the 1-minute load average is 12.3 on 14 cores, 0.88 per core, above the limit of 0.7
 ```
 

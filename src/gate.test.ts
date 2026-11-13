@@ -33,6 +33,9 @@ describe("ungatedChecks", () => {
       "pnpm run lint",
       "yarn test",
       "yarn typecheck",
+      "pnpm --filter api test",
+      "pnpm -r lint",
+      "yarn workspace api test",
     ]) {
       expect(ungatedChecks(command)).toEqual([command]);
     }
@@ -52,6 +55,10 @@ describe("ungatedChecks", () => {
     expect(ungatedChecks("if true; then mise run lint; fi")).toEqual(["mise run lint"]);
     expect(ungatedChecks("{ bun test; } &")).toEqual(["bun test"]);
     expect(ungatedChecks("ls & bun test")).toEqual(["bun test"]);
+    expect(ungatedChecks("bun run --filter '*' check")).toEqual(["bun run --filter * check"]);
+    expect(ungatedChecks("cd app && \\\nmise run check")).toEqual(["mise run check"]);
+    expect(ungatedChecks("bun \\\ntest")).toEqual(["bun test"]);
+    expect(ungatedChecks('sh -c "bun \\\ntest"')).toEqual(["bun test"]);
   });
 
   test("follows command substitutions and a shell's -c script", () => {

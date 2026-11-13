@@ -156,7 +156,7 @@ function lexFrom(text: string, start: number, nested: boolean): Lexed {
       at = hereDocumentBodies(at + 1) - 1;
     } else if (SEPARATORS.has(char)) endCommand();
     else if (char === "\\") {
-      append(next);
+      if (next !== "\n") append(next);
       at += 1;
     } else if (char === "'") {
       const end = closingQuote(text, at + 1);
@@ -220,7 +220,8 @@ function lexFrom(text: string, start: number, nested: boolean): Lexed {
         return inside;
       }
       if (char === "\\") {
-        literal += text[inside + 1] ?? "";
+        const escaped = text[inside + 1] ?? "";
+        if (escaped !== "\n") literal += escaped;
         inside += 1;
       } else if (char === "$" && text[inside + 1] === "(") inside = substitute(inside + 2);
       else if (char === "`") inside = backticks(inside + 1);
@@ -268,10 +269,12 @@ function isCheckName(word: string): boolean {
   return CHECK_NAMES.has(parts[0] ?? "") && !parts.includes(WATCH);
 }
 
+function namesCheck(words: Words): boolean {
+  return words.some((word) => !isFlag(word) && isCheckName(word));
+}
+
 function runsScript([sub, ...rest]: Words): boolean {
-  if (sub !== "run" && sub !== "run-script") return false;
-  const script = rest.find((word) => !isFlag(word));
-  return script !== undefined && isCheckName(script);
+  return (sub === "run" || sub === "run-script") && namesCheck(rest);
 }
 
 const isTest = ([sub]: Words) => sub === "test";
@@ -279,12 +282,11 @@ const isTest = ([sub]: Words) => sub === "test";
 const always = () => true;
 
 const RUNNERS: Readonly<Record<string, (args: Words) => boolean>> = {
-  mise: ([sub, ...rest]) =>
-    (sub === "run" || sub === "r") && rest.some((word) => !isFlag(word) && isCheckName(word)),
+  mise: ([sub, ...rest]) => (sub === "run" || sub === "r") && namesCheck(rest),
   bun: (args) => isTest(args) || runsScript(args),
   npm: (args) => isTest(args) || runsScript(args),
-  pnpm: (args) => runsScript(args) || (args[0] !== undefined && isCheckName(args[0])),
-  yarn: (args) => runsScript(args) || (args[0] !== undefined && isCheckName(args[0])),
+  pnpm: namesCheck,
+  yarn: namesCheck,
   flutter: isTest,
   dart: isTest,
   cargo: isTest,
